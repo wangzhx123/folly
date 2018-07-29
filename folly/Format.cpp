@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,18 +16,79 @@
 
 #include <folly/Format.h>
 
+#include <folly/ConstexprMath.h>
 #include <folly/CppAttributes.h>
-#include <folly/portability/Constexpr.h>
+#include <folly/container/Array.h>
 
 #include <double-conversion/double-conversion.h>
 
 namespace folly {
 namespace detail {
 
-extern const FormatArg::Align formatAlignTable[];
-extern const FormatArg::Sign formatSignTable[];
+//  ctor for items in the align table
+struct format_table_align_make_item {
+  static constexpr std::size_t size = 256;
+  constexpr FormatArg::Align operator()(std::size_t index) const {
+    // clang-format off
+    return
+        index == '<' ? FormatArg::Align::LEFT:
+        index == '>' ? FormatArg::Align::RIGHT :
+        index == '=' ? FormatArg::Align::PAD_AFTER_SIGN :
+        index == '^' ? FormatArg::Align::CENTER :
+        FormatArg::Align::INVALID;
+    // clang-format on
+  }
+};
 
-}  // namespace detail
+//  ctor for items in the conv tables for representing parts of nonnegative
+//  integers into ascii digits of length Size, over a given base Base
+template <std::size_t Base, std::size_t Size, bool Upper = false>
+struct format_table_conv_make_item {
+  static_assert(Base <= 36, "Base is unrepresentable");
+  struct make_item {
+    std::size_t index{};
+    constexpr explicit make_item(std::size_t index_) : index(index_) {} // gcc49
+    constexpr char alpha(std::size_t ord) const {
+      return ord < 10 ? '0' + ord : (Upper ? 'A' : 'a') + (ord - 10);
+    }
+    constexpr char operator()(std::size_t offset) const {
+      return alpha(index / constexpr_pow(Base, Size - offset - 1) % Base);
+    }
+  };
+  constexpr std::array<char, Size> operator()(std::size_t index) const {
+    return make_array_with<Size>(make_item{index});
+  }
+};
+
+//  ctor for items in the sign table
+struct format_table_sign_make_item {
+  static constexpr std::size_t size = 256;
+  constexpr FormatArg::Sign operator()(std::size_t index) const {
+    // clang-format off
+    return
+        index == '+' ? FormatArg::Sign::PLUS_OR_MINUS :
+        index == '-' ? FormatArg::Sign::MINUS :
+        index == ' ' ? FormatArg::Sign::SPACE_OR_MINUS :
+        FormatArg::Sign::INVALID;
+    // clang-format on
+  }
+};
+
+//  the tables
+FOLLY_STORAGE_CONSTEXPR auto formatAlignTable =
+    make_array_with<256>(format_table_align_make_item{});
+FOLLY_STORAGE_CONSTEXPR auto formatSignTable =
+    make_array_with<256>(format_table_sign_make_item{});
+FOLLY_STORAGE_CONSTEXPR decltype(formatHexLower) formatHexLower =
+    make_array_with<256>(format_table_conv_make_item<16, 2, false>{});
+FOLLY_STORAGE_CONSTEXPR decltype(formatHexUpper) formatHexUpper =
+    make_array_with<256>(format_table_conv_make_item<16, 2, true>{});
+FOLLY_STORAGE_CONSTEXPR decltype(formatOctal) formatOctal =
+    make_array_with<512>(format_table_conv_make_item<8, 3>{});
+FOLLY_STORAGE_CONSTEXPR decltype(formatBinary) formatBinary =
+    make_array_with<256>(format_table_conv_make_item<2, 8>{});
+
+} // namespace detail
 
 using namespace folly::detail;
 
@@ -179,7 +240,9 @@ void FormatArg::initSlow() {
 
   if (*p == ':') {
     // parse format spec
-    if (++p == end) return;
+    if (++p == end) {
+      return;
+    }
 
     // fill/align, or just align
     Align a;
@@ -189,30 +252,40 @@ void FormatArg::initSlow() {
       fill = *p;
       align = a;
       p += 2;
-      if (p == end) return;
+      if (p == end) {
+        return;
+      }
     } else if ((a = formatAlignTable[static_cast<unsigned char>(*p)]) !=
                Align::INVALID) {
       align = a;
-      if (++p == end) return;
+      if (++p == end) {
+        return;
+      }
     }
 
     Sign s;
     unsigned char uSign = static_cast<unsigned char>(*p);
     if ((s = formatSignTable[uSign]) != Sign::INVALID) {
       sign = s;
-      if (++p == end) return;
+      if (++p == end) {
+        return;
+      }
     }
 
     if (*p == '#') {
       basePrefix = true;
-      if (++p == end) return;
+      if (++p == end) {
+        return;
+      }
     }
 
     if (*p == '0') {
       enforce(align == Align::DEFAULT, "alignment specified twice");
       fill = '0';
       align = Align::PAD_AFTER_SIGN;
-      if (++p == end) return;
+      if (++p == end) {
+        return;
+      }
     }
 
     auto readInt = [&] {
@@ -227,20 +300,30 @@ void FormatArg::initSlow() {
       width = kDynamicWidth;
       ++p;
 
-      if (p == end) return;
+      if (p == end) {
+        return;
+      }
 
-      if (*p >= '0' && *p <= '9') widthIndex = readInt();
+      if (*p >= '0' && *p <= '9') {
+        widthIndex = readInt();
+      }
 
-      if (p == end) return;
+      if (p == end) {
+        return;
+      }
     } else if (*p >= '0' && *p <= '9') {
       width = readInt();
 
-      if (p == end) return;
+      if (p == end) {
+        return;
+      }
     }
 
     if (*p == ',') {
       thousandsSeparator = true;
-      if (++p == end) return;
+      if (++p == end) {
+        return;
+      }
     }
 
     if (*p == '.') {
@@ -258,11 +341,15 @@ void FormatArg::initSlow() {
         trailingDot = true;
       }
 
-      if (p == end) return;
+      if (p == end) {
+        return;
+      }
     }
 
     presentation = *p;
-    if (++p == end) return;
+    if (++p == end) {
+      return;
+    }
   }
 
   error("extra characters in format string");
@@ -328,6 +415,17 @@ void insertThousandsGroupingUnsafe(char* start_buffer, char** end_buffer) {
     remaining_digits -= current_group_size;
   }
 }
-} // detail
+} // namespace detail
 
-}  // namespace folly
+FormatKeyNotFoundException::FormatKeyNotFoundException(StringPiece key)
+    : std::out_of_range(kMessagePrefix.str() + key.str()) {}
+
+constexpr StringPiece const FormatKeyNotFoundException::kMessagePrefix;
+
+namespace detail {
+[[noreturn]] void throwFormatKeyNotFoundException(StringPiece key) {
+  throw FormatKeyNotFoundException(key);
+}
+} // namespace detail
+
+} // namespace folly

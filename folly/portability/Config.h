@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,13 @@
 #endif
 
 #if FOLLY_HAVE_FEATURES_H
-#include <features.h>
+#include <features.h> // @manual
 #endif
 
 #ifdef __ANDROID__
-#include <android/api-level.h>
+#include <android/api-level.h> // @manual
 #endif
 
 #ifdef __APPLE__
-#include <Availability.h>
+#include <Availability.h> // @manual
 #endif

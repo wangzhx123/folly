@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -237,13 +237,14 @@ const std::unordered_map<std::string, FlagAdder> gFlagAdders = {
   X("bool",   bool)
   X("int32",  int32_t)
   X("int64",  int64_t)
+  X("uint32", uint32_t)
   X("uint64", uint64_t)
   X("double", double)
   X("string", std::string)
 #undef X
 };
 
-}  // namespace
+} // namespace
 
 po::options_description getGFlags(ProgramOptionsStyle style) {
   static const std::unordered_set<std::string> gSkipFlags{
@@ -315,7 +316,7 @@ NestedCommandLineParseResult doParseNestedCommandLine(
   return result;
 }
 
-}  // namespace
+} // namespace
 
 NestedCommandLineParseResult parseNestedCommandLine(
     int argc, const char* const argv[],
@@ -329,4 +330,4 @@ NestedCommandLineParseResult parseNestedCommandLine(
   return doParseNestedCommandLine(po::command_line_parser(cmdline), desc);
 }
 
-}  // namespaces
+} // namespace folly

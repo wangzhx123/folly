@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 #include <boost/lexical_cast.hpp>
 
 #include <folly/Conv.h>
-#include <folly/Foreach.h>
+#include <folly/container/Foreach.h>
 #include <folly/portability/GTest.h>
 
 #include <algorithm>
@@ -147,7 +147,7 @@ TEST(Conv, Floating2Floating) {
     EXPECT_TRUE(shouldWork == std::numeric_limits<float>::min() ||
                 shouldWork == 0.f);
   } catch (...) {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   }
 }
 
@@ -589,6 +589,16 @@ TEST(Conv, StringPieceToDouble) {
       make_tuple(" 0.0  zorro", "  zorro", 0.0),
       make_tuple(" 0.0  zorro ", "  zorro ", 0.0),
       make_tuple("0.0zorro", "zorro", 0.0),
+      make_tuple("0.0eb", "eb", 0.0),
+      make_tuple("0.0EB", "EB", 0.0),
+      make_tuple("0eb", "eb", 0.0),
+      make_tuple("0EB", "EB", 0.0),
+      make_tuple("12e", "e", 12.0),
+      make_tuple("12e-", "e-", 12.0),
+      make_tuple("12e+", "e+", 12.0),
+      make_tuple("12e-f-g", "e-f-g", 12.0),
+      make_tuple("12e+f+g", "e+f+g", 12.0),
+      make_tuple("12euro", "euro", 12.0),
   };
   for (const auto& s : strs) {
     StringPiece pc(get<0>(s));
@@ -601,16 +611,34 @@ TEST(Conv, StringPieceToDouble) {
   // Test NaN conversion
   try {
     to<double>("not a number");
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (const std::range_error &) {
   }
 
+  EXPECT_TRUE(std::isnan(to<double>("nan")));
   EXPECT_TRUE(std::isnan(to<double>("NaN")));
+  EXPECT_TRUE(std::isnan(to<double>("NAN")));
+  EXPECT_TRUE(std::isnan(to<double>("-nan")));
+  EXPECT_TRUE(std::isnan(to<double>("-NaN")));
+  EXPECT_TRUE(std::isnan(to<double>("-NAN")));
+
   EXPECT_EQ(to<double>("inf"), numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("Inf"), numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("INF"), numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("inF"), numeric_limits<double>::infinity());
   EXPECT_EQ(to<double>("infinity"), numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("Infinity"), numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("INFINITY"), numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("iNfInItY"), numeric_limits<double>::infinity());
   EXPECT_THROW(to<double>("infinitX"), std::range_error);
   EXPECT_EQ(to<double>("-inf"), -numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("-Inf"), -numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("-INF"), -numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("-inF"), -numeric_limits<double>::infinity());
   EXPECT_EQ(to<double>("-infinity"), -numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("-Infinity"), -numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("-INFINITY"), -numeric_limits<double>::infinity());
+  EXPECT_EQ(to<double>("-iNfInItY"), -numeric_limits<double>::infinity());
   EXPECT_THROW(to<double>("-infinitX"), std::range_error);
 }
 
@@ -620,7 +648,7 @@ TEST(Conv, EmptyStringToInt) {
 
   try {
     to<int>(pc);
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (const std::range_error &) {
   }
 }
@@ -631,7 +659,7 @@ TEST(Conv, CorruptedStringToInt) {
 
   try {
     to<int64_t>(&pc);
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (const std::range_error &) {
   }
 }
@@ -642,7 +670,7 @@ TEST(Conv, EmptyStringToDouble) {
 
   try {
     to<double>(pc);
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (const std::range_error &) {
   }
 }
@@ -653,7 +681,7 @@ TEST(Conv, IntToDouble) {
   /* This seems not work in ubuntu11.10, gcc 4.6.1
   try {
     auto f = to<float>(957837589847);
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (std::range_error& e) {
     //LOG(INFO) << e.what();
   }
@@ -666,7 +694,7 @@ TEST(Conv, DoubleToInt) {
   try {
     auto i2 = to<int>(42.1);
     LOG(ERROR) << "to<int> returned " << i2 << " instead of throwing";
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (std::range_error&) {
     //LOG(INFO) << e.what();
   }
@@ -683,7 +711,7 @@ TEST(Conv, EnumToInt) {
     LOG(ERROR) << "to<char> returned "
                << static_cast<unsigned int>(i2)
                << " instead of throwing";
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (std::range_error&) {
     //LOG(INFO) << e.what();
   }
@@ -708,7 +736,7 @@ TEST(Conv, IntToEnum) {
     LOG(ERROR) << "to<A> returned "
                << static_cast<unsigned int>(i2)
                << " instead of throwing";
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (std::range_error&) {
     //LOG(INFO) << e.what();
   }
@@ -725,7 +753,7 @@ TEST(Conv, UnsignedEnum) {
   try {
     auto i = to<int32_t>(x);
     LOG(ERROR) << "to<int32_t> returned " << i << " instead of throwing";
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   } catch (std::range_error&) {
   }
 }
@@ -764,7 +792,7 @@ TEST(Conv, IntegralToBool) {
   EXPECT_TRUE(to<bool>(42ul));
 }
 
-template<typename Src>
+template <typename Src>
 void testStr2Bool() {
   EXPECT_FALSE(to<bool>(Src("0")));
   EXPECT_FALSE(to<bool>(Src("  000  ")));
@@ -773,7 +801,7 @@ void testStr2Bool() {
   EXPECT_FALSE(to<bool>(Src("no")));
   EXPECT_FALSE(to<bool>(Src("false")));
   EXPECT_FALSE(to<bool>(Src("False")));
-  EXPECT_FALSE(to<bool>(Src("  fAlSe"  )));
+  EXPECT_FALSE(to<bool>(Src("  fAlSe  ")));
   EXPECT_FALSE(to<bool>(Src("F")));
   EXPECT_FALSE(to<bool>(Src("off")));
 
@@ -897,7 +925,7 @@ void testConvError(
   std::string where = to<std::string>(__FILE__, "(", line, "): ");
   try {
     auto res = expr();
-    EXPECT_TRUE(false) << where << exprStr << " -> " << res;
+    ADD_FAILURE() << where << exprStr << " -> " << res;
   } catch (const ConversionError& e) {
     EXPECT_EQ(code, e.errorCode()) << where << exprStr;
     std::string str(e.what());
@@ -917,7 +945,7 @@ void testConvError(
     }
   }
 }
-}
+} // namespace
 
 #define EXPECT_CONV_ERROR_QUOTE(expr, code, value, quoted) \
   testConvError(                                           \
@@ -1015,7 +1043,7 @@ std::string prefixWithType(V value) {
   oss << to<std::string>(value);
   return oss.str();
 }
-}
+} // namespace
 
 #define EXPECT_CONV_ERROR_ARITH(type, val, code) \
   EXPECT_CONV_ERROR_QUOTE(                       \
@@ -1221,7 +1249,23 @@ size_t estimateSpaceNeeded(const Dimensions&in) {
   return 2000 + folly::estimateSpaceNeeded(in.w) +
       folly::estimateSpaceNeeded(in.h);
 }
+
+enum class SmallEnum {};
+
+Expected<StringPiece, ConversionCode> parseTo(StringPiece in, SmallEnum& out) {
+  out = {};
+  if (in == "SmallEnum") {
+    return in.removePrefix(in), in;
+  } else {
+    return makeUnexpected(ConversionCode::STRING_TO_FLOAT_ERROR);
+  }
 }
+
+template <class String>
+void toAppend(SmallEnum, String* result) {
+  folly::toAppend("SmallEnum", result);
+}
+} // namespace my
 
 TEST(Conv, custom_kkproviders) {
   my::Dimensions expected{7, 8};
@@ -1231,6 +1275,17 @@ TEST(Conv, custom_kkproviders) {
   // make sure above implementation of estimateSpaceNeeded() is used.
   EXPECT_GT(str.capacity(), 2000);
   EXPECT_LT(str.capacity(), 2500);
+  // toAppend with other arguments
+  toAppend("|", expected, &str);
+  EXPECT_EQ("7x8|7x8", str);
+}
+
+TEST(conv, custom_enumclass) {
+  EXPECT_EQ(my::SmallEnum{}, folly::to<my::SmallEnum>("SmallEnum"));
+  EXPECT_EQ(my::SmallEnum{}, folly::tryTo<my::SmallEnum>("SmallEnum").value());
+  auto str = to<string>(my::SmallEnum{});
+  toAppend("|", my::SmallEnum{}, &str);
+  EXPECT_EQ("SmallEnum|SmallEnum", str);
 }
 
 TEST(Conv, TryToThenWithVoid) {
@@ -1238,4 +1293,22 @@ TEST(Conv, TryToThenWithVoid) {
   EXPECT_TRUE(x.hasValue());
   Unit u = x.value();
   (void)u;
+}
+
+TEST(conv, TryIntToUnscopedEnumAndBack) {
+  enum UnscopedEnum {
+    First = 0,
+    Second = 1,
+  };
+  EXPECT_EQ(UnscopedEnum::Second, folly::tryTo<UnscopedEnum>(1).value());
+  EXPECT_EQ(1, folly::tryTo<int>(UnscopedEnum::Second).value());
+}
+
+TEST(conv, TryIntToScopedEnumAndBack) {
+  enum class ScopedEnum {
+    First = 0,
+    Second = 1,
+  };
+  EXPECT_EQ(ScopedEnum::Second, folly::tryTo<ScopedEnum>(1).value());
+  EXPECT_EQ(1, folly::tryTo<int>(ScopedEnum::Second).value());
 }

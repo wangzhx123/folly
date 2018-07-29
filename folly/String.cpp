@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,153 @@
 
 #include <folly/String.h>
 
-#include <folly/Format.h>
-#include <folly/ScopeGuard.h>
-
+#include <cctype>
 #include <cerrno>
 #include <cstdarg>
 #include <cstring>
-#include <stdexcept>
 #include <iterator>
-#include <cctype>
-#include <string.h>
+#include <sstream>
+#include <stdexcept>
+
 #include <glog/logging.h>
 
+#include <folly/Portability.h>
+#include <folly/ScopeGuard.h>
+#include <folly/container/Array.h>
+
 namespace folly {
+
+static_assert(IsConvertible<float>::value, "");
+static_assert(IsConvertible<int>::value, "");
+static_assert(IsConvertible<bool>::value, "");
+static_assert(IsConvertible<int>::value, "");
+static_assert(!IsConvertible<std::vector<int>>::value, "");
+
+namespace detail {
+
+struct string_table_c_escape_make_item {
+  constexpr char operator()(std::size_t index) const {
+    // clang-format off
+    return
+        index == '"' ? '"' :
+        index == '\\' ? '\\' :
+        index == '?' ? '?' :
+        index == '\n' ? 'n' :
+        index == '\r' ? 'r' :
+        index == '\t' ? 't' :
+        index < 32 || index > 126 ? 'O' : // octal
+        'P'; // printable
+    // clang-format on
+  }
+};
+
+struct string_table_c_unescape_make_item {
+  constexpr char operator()(std::size_t index) const {
+    // clang-format off
+    return
+        index == '\'' ? '\'' :
+        index == '?' ? '?' :
+        index == '\\' ? '\\' :
+        index == '"' ? '"' :
+        index == 'a' ? '\a' :
+        index == 'b' ? '\b' :
+        index == 'f' ? '\f' :
+        index == 'n' ? '\n' :
+        index == 'r' ? '\r' :
+        index == 't' ? '\t' :
+        index == 'v' ? '\v' :
+        index >= '0' && index <= '7' ? 'O' : // octal
+        index == 'x' ? 'X' : // hex
+        'I'; // invalid
+    // clang-format on
+  }
+};
+
+struct string_table_hex_make_item {
+  constexpr unsigned char operator()(std::size_t index) const {
+    // clang-format off
+    return
+        index >= '0' && index <= '9' ? index - '0' :
+        index >= 'a' && index <= 'f' ? index - 'a' + 10 :
+        index >= 'A' && index <= 'F' ? index - 'A' + 10 :
+        16;
+    // clang-format on
+  }
+};
+
+struct string_table_uri_escape_make_item {
+  //  0 = passthrough
+  //  1 = unused
+  //  2 = safe in path (/)
+  //  3 = space (replace with '+' in query)
+  //  4 = always percent-encode
+  constexpr unsigned char operator()(std::size_t index) const {
+    // clang-format off
+    return
+        index >= '0' && index <= '9' ? 0 :
+        index >= 'A' && index <= 'Z' ? 0 :
+        index >= 'a' && index <= 'z' ? 0 :
+        index == '-' ? 0 :
+        index == '_' ? 0 :
+        index == '.' ? 0 :
+        index == '~' ? 0 :
+        index == '/' ? 2 :
+        index == ' ' ? 3 :
+        4;
+    // clang-format on
+  }
+};
+
+FOLLY_STORAGE_CONSTEXPR decltype(cEscapeTable) cEscapeTable =
+    make_array_with<256>(string_table_c_escape_make_item{});
+FOLLY_STORAGE_CONSTEXPR decltype(cUnescapeTable) cUnescapeTable =
+    make_array_with<256>(string_table_c_unescape_make_item{});
+FOLLY_STORAGE_CONSTEXPR decltype(hexTable) hexTable =
+    make_array_with<256>(string_table_hex_make_item{});
+FOLLY_STORAGE_CONSTEXPR decltype(uriEscapeTable) uriEscapeTable =
+    make_array_with<256>(string_table_uri_escape_make_item{});
+
+} // namespace detail
+
+static inline bool is_oddspace(char c) {
+  return c == '\n' || c == '\t' || c == '\r';
+}
+
+StringPiece ltrimWhitespace(StringPiece sp) {
+  // Spaces other than ' ' characters are less common but should be
+  // checked.  This configuration where we loop on the ' '
+  // separately from oddspaces was empirically fastest.
+
+  while (true) {
+    while (!sp.empty() && sp.front() == ' ') {
+      sp.pop_front();
+    }
+    if (!sp.empty() && is_oddspace(sp.front())) {
+      sp.pop_front();
+      continue;
+    }
+
+    return sp;
+  }
+}
+
+StringPiece rtrimWhitespace(StringPiece sp) {
+  // Spaces other than ' ' characters are less common but should be
+  // checked.  This configuration where we loop on the ' '
+  // separately from oddspaces was empirically fastest.
+
+  while (true) {
+    while (!sp.empty() && sp.back() == ' ') {
+      sp.pop_back();
+    }
+    if (!sp.empty() && is_oddspace(sp.back())) {
+      sp.pop_back();
+      continue;
+    }
+
+    return sp;
+  }
+}
 
 namespace {
 
@@ -83,7 +217,7 @@ void stringAppendfImpl(std::string& output, const char* format, va_list args) {
   output.append(heap_buffer.get(), size_t(final_bytes_used));
 }
 
-} // anon namespace
+} // namespace
 
 std::string stringPrintf(const char* format, ...) {
   va_list ap;
@@ -130,7 +264,7 @@ void stringPrintf(std::string* output, const char* format, ...) {
 void stringVPrintf(std::string* output, const char* format, va_list ap) {
   output->clear();
   stringAppendfImpl(*output, format, ap);
-};
+}
 
 namespace {
 
@@ -146,61 +280,85 @@ const PrettySuffix kPrettyTimeSuffixes[] = {
   { "ns", 1e-9L },
   { "ps", 1e-12L },
   { "s ", 0 },
-  { 0, 0 },
+  { nullptr, 0 },
+};
+
+const PrettySuffix kPrettyTimeHmsSuffixes[] = {
+  { "h ", 60L * 60L },
+  { "m ", 60L },
+  { "s ", 1e0L },
+  { "ms", 1e-3L },
+  { "us", 1e-6L },
+  { "ns", 1e-9L },
+  { "ps", 1e-12L },
+  { "s ", 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettyBytesMetricSuffixes[] = {
+  { "EB", 1e18L },
+  { "PB", 1e15L },
   { "TB", 1e12L },
   { "GB", 1e9L },
   { "MB", 1e6L },
   { "kB", 1e3L },
   { "B ", 0L },
-  { 0, 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettyBytesBinarySuffixes[] = {
+  { "EB", int64_t(1) << 60 },
+  { "PB", int64_t(1) << 50 },
   { "TB", int64_t(1) << 40 },
   { "GB", int64_t(1) << 30 },
   { "MB", int64_t(1) << 20 },
   { "kB", int64_t(1) << 10 },
   { "B ", 0L },
-  { 0, 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettyBytesBinaryIECSuffixes[] = {
+  { "EiB", int64_t(1) << 60 },
+  { "PiB", int64_t(1) << 50 },
   { "TiB", int64_t(1) << 40 },
   { "GiB", int64_t(1) << 30 },
   { "MiB", int64_t(1) << 20 },
   { "KiB", int64_t(1) << 10 },
   { "B  ", 0L },
-  { 0, 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettyUnitsMetricSuffixes[] = {
+  { "qntl", 1e18L },
+  { "qdrl", 1e15L },
   { "tril", 1e12L },
   { "bil",  1e9L },
   { "M",    1e6L },
   { "k",    1e3L },
   { " ",      0  },
-  { 0, 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettyUnitsBinarySuffixes[] = {
+  { "E", int64_t(1) << 60 },
+  { "P", int64_t(1) << 50 },
   { "T", int64_t(1) << 40 },
   { "G", int64_t(1) << 30 },
   { "M", int64_t(1) << 20 },
   { "k", int64_t(1) << 10 },
   { " ", 0 },
-  { 0, 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettyUnitsBinaryIECSuffixes[] = {
+  { "Ei", int64_t(1) << 60 },
+  { "Pi", int64_t(1) << 50 },
   { "Ti", int64_t(1) << 40 },
   { "Gi", int64_t(1) << 30 },
   { "Mi", int64_t(1) << 20 },
   { "Ki", int64_t(1) << 10 },
   { "  ", 0 },
-  { 0, 0 },
+  { nullptr, 0 },
 };
 
 const PrettySuffix kPrettySISuffixes[] = {
@@ -225,11 +383,12 @@ const PrettySuffix kPrettySISuffixes[] = {
   { "z", 1e-21L },
   { "y", 1e-24L },
   { " ", 0 },
-  { 0, 0}
+  { nullptr, 0}
 };
 
 const PrettySuffix* const kPrettySuffixes[PRETTY_NUM_TYPES] = {
   kPrettyTimeSuffixes,
+  kPrettyTimeHmsSuffixes,
   kPrettyBytesMetricSuffixes,
   kPrettyBytesBinarySuffixes,
   kPrettyBytesBinaryIECSuffixes,
@@ -239,7 +398,7 @@ const PrettySuffix* const kPrettySuffixes[PRETTY_NUM_TYPES] = {
   kPrettySISuffixes,
 };
 
-}  // namespace
+} // namespace
 
 std::string prettyPrint(double val, PrettyType type, bool addSpace) {
   char buf[100];
@@ -296,8 +455,7 @@ double prettyToDouble(folly::StringPiece *const prettyString,
   }
   if (bestPrefixId == -1) { //No valid suffix rule found
     throw std::invalid_argument(folly::to<std::string>(
-            "Unable to parse suffix \"",
-            prettyString->toString(), "\""));
+        "Unable to parse suffix \"", *prettyString, "\""));
   }
   prettyString->advance(size_t(longestPrefixLen));
   return suffixes[bestPrefixId].val ? value * suffixes[bestPrefixId].val :
@@ -454,7 +612,7 @@ void toLowerAscii64(uint64_t& c) {
   c += rotated;
 }
 
-} // anon namespace
+} // namespace
 
 void toLowerAscii(char* str, size_t length) {
   static const size_t kAlignMask64 = 7;
@@ -507,6 +665,7 @@ namespace detail {
 
 size_t hexDumpLine(const void* ptr, size_t offset, size_t size,
                    std::string& line) {
+  static char hexValues[] = "0123456789abcdef";
   // Line layout:
   // 8: address
   // 1: space
@@ -520,13 +679,24 @@ size_t hexDumpLine(const void* ptr, size_t offset, size_t size,
   line.reserve(78);
   const uint8_t* p = reinterpret_cast<const uint8_t*>(ptr) + offset;
   size_t n = std::min(size - offset, size_t(16));
-  format("{:08x} ", offset).appendTo(line);
+  line.push_back(hexValues[(offset >> 28) & 0xf]);
+  line.push_back(hexValues[(offset >> 24) & 0xf]);
+  line.push_back(hexValues[(offset >> 20) & 0xf]);
+  line.push_back(hexValues[(offset >> 16) & 0xf]);
+  line.push_back(hexValues[(offset >> 12) & 0xf]);
+  line.push_back(hexValues[(offset >> 8) & 0xf]);
+  line.push_back(hexValues[(offset >> 4) & 0xf]);
+  line.push_back(hexValues[offset & 0xf]);
+  line.push_back(' ');
 
   for (size_t i = 0; i < n; i++) {
     if (i == 8) {
       line.push_back(' ');
     }
-    format(" {:02x}", p[i]).appendTo(line);
+
+    line.push_back(' ');
+    line.push_back(hexValues[(p[i] >> 4) & 0xf]);
+    line.push_back(hexValues[p[i] & 0xf]);
   }
 
   // 3 spaces for each byte we're not printing, one separating the halves
@@ -591,7 +761,7 @@ std::string stripLeftMargin(std::string s) {
   return join("\n", piecer);
 }
 
-}   // namespace folly
+} // namespace folly
 
 #ifdef FOLLY_DEFINED_DMGL
 # undef FOLLY_DEFINED_DMGL

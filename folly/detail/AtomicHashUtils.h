@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <thread>
+
 #include <folly/portability/Asm.h>
 
 // Some utilities used by AtomicHashArray and AtomicHashMap
@@ -29,11 +30,12 @@ void atomic_hash_spin_wait(Cond condition) {
   constexpr size_t kPauseLimit = 10000;
   for (size_t i = 0; condition(); ++i) {
     if (i < kPauseLimit) {
-      folly::asm_pause();
+      folly::asm_volatile_pause();
     } else {
       std::this_thread::yield();
     }
   }
 }
 
-}} // namespace folly::detail
+} // namespace detail
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,6 @@
 #include <typeinfo>
 #include <utility>
 
-#include <boost/implicit_cast.hpp>
 #include <double-conversion/double-conversion.h> // V8 JavaScript implementation
 
 #include <folly/Demangle.h>
@@ -133,7 +132,7 @@ inline void enforceWhitespace(StringPiece sp) {
     throw makeConversionError(err, sp);
   }
 }
-}
+} // namespace detail
 
 /**
  * The identity conversion function.
@@ -283,7 +282,7 @@ unsafeTelescope128(char * buffer, size_t room, unsigned __int128 x) {
   return p;
 }
 
-}
+} // namespace detail
 #endif
 
 /**
@@ -303,7 +302,7 @@ inline uint32_t digits10(uint64_t v) {
   // 10^i, defined for i 0 through 19.
   // This is 20 * 8 == 160 bytes, which fits neatly into 5 cache lines
   // (assuming a cache line size of 64).
-  static const uint64_t powersOf10[20] FOLLY_ALIGNED(64) = {
+  alignas(64) static const uint64_t powersOf10[20] = {
       1,
       10,
       100,
@@ -327,7 +326,7 @@ inline uint32_t digits10(uint64_t v) {
   };
 
   // "count leading zeroes" operation not valid; for 0; special case this.
-  if UNLIKELY (! v) {
+  if (UNLIKELY(!v)) {
     return 1;
   }
 
@@ -342,16 +341,24 @@ inline uint32_t digits10(uint64_t v) {
 
   // return that log_10 lower bound, plus adjust if input >= 10^(that bound)
   // in case there's a small error and we misjudged length.
-  return minLength + (uint32_t) (UNLIKELY (v >= powersOf10[minLength]));
+  return minLength + uint32_t(v >= powersOf10[minLength]);
 
 #else
 
   uint32_t result = 1;
-  for (;;) {
-    if (LIKELY(v < 10)) return result;
-    if (LIKELY(v < 100)) return result + 1;
-    if (LIKELY(v < 1000)) return result + 2;
-    if (LIKELY(v < 10000)) return result + 3;
+  while (true) {
+    if (LIKELY(v < 10)) {
+      return result;
+    }
+    if (LIKELY(v < 100)) {
+      return result + 1;
+    }
+    if (LIKELY(v < 1000)) {
+      return result + 2;
+    }
+    if (LIKELY(v < 10000)) {
+      return result + 3;
+    }
     // Skip ahead by 4 orders of magnitude
     v /= 10000U;
     result += 4;
@@ -400,12 +407,17 @@ void toAppend(char value, Tgt * result) {
   *result += value;
 }
 
-template<class T>
+template <class T>
 constexpr typename std::enable_if<
   std::is_same<T, char>::value,
   size_t>::type
 estimateSpaceNeeded(T) {
   return 1;
+}
+
+template <size_t N>
+constexpr size_t estimateSpaceNeeded(const char (&)[N]) {
+  return N;
 }
 
 /**
@@ -435,12 +447,18 @@ typename std::enable_if<std::is_convertible<Src, const char*>::value, size_t>::
   return 0;
 }
 
-template<class Src>
+template <class Src>
+typename std::enable_if<IsSomeString<Src>::value, size_t>::type
+estimateSpaceNeeded(Src const& value) {
+  return value.size();
+}
+
+template <class Src>
 typename std::enable_if<
-  (std::is_convertible<Src, folly::StringPiece>::value ||
-  IsSomeString<Src>::value) &&
-  !std::is_convertible<Src, const char*>::value,
-  size_t>::type
+    std::is_convertible<Src, folly::StringPiece>::value &&
+        !IsSomeString<Src>::value &&
+        !std::is_convertible<Src, const char*>::value,
+    size_t>::type
 estimateSpaceNeeded(Src value) {
   return folly::StringPiece(value).size();
 }
@@ -450,7 +468,7 @@ inline size_t estimateSpaceNeeded(std::nullptr_t /* value */) {
   return 0;
 }
 
-template<class Src>
+template <class Src>
 typename std::enable_if<
   std::is_pointer<Src>::value &&
   IsSomeString<std::remove_pointer<Src>>::value,
@@ -523,7 +541,7 @@ toAppend(unsigned __int128 value, Tgt * result) {
   result->append(buffer + p, buffer + sizeof(buffer));
 }
 
-template<class T>
+template <class T>
 constexpr typename std::enable_if<
   std::is_same<T, __int128>::value,
   size_t>::type
@@ -531,7 +549,7 @@ estimateSpaceNeeded(T) {
   return detail::digitsEnough<__int128>();
 }
 
-template<class T>
+template <class T>
 constexpr typename std::enable_if<
   std::is_same<T, unsigned __int128>::value,
   size_t>::type
@@ -656,7 +674,7 @@ estimateSpaceNeeded(Src value) {
 namespace detail {
 constexpr int kConvMaxDecimalInShortestLow = -6;
 constexpr int kConvMaxDecimalInShortestHigh = 21;
-} // folly::detail
+} // namespace detail
 
 /** Wrapper around DoubleToStringConverter **/
 template <class Tgt, class Src>
@@ -742,7 +760,7 @@ estimateSpaceNeeded(Src value) {
  * for estimateSpaceNeed for your type, so that we allocate
  * as much as you need instead of the default
  */
-template<class Src>
+template <class Src>
 struct HasLengthEstimator : std::false_type {};
 
 template <class Src>
@@ -776,12 +794,12 @@ size_t estimateSpaceToReserve(size_t sofar, const T& v, const Ts&... vs) {
   return estimateSpaceToReserve(sofar + estimateSpaceNeeded(v), vs...);
 }
 
-template<class...Ts>
+template <class... Ts>
 void reserveInTarget(const Ts&...vs) {
   getLastElement(vs...)->reserve(estimateSpaceToReserve(0, vs...));
 }
 
-template<class Delimiter, class...Ts>
+template <class Delimiter, class... Ts>
 void reserveInTargetDelim(const Delimiter& d, const Ts&...vs) {
   static_assert(sizeof...(vs) >= 2, "Needs at least 2 args");
   size_t fordelim = (sizeof...(vs) - 2) *
@@ -830,8 +848,7 @@ toAppendDelimStrImpl(const Delimiter& delim, const T& v, const Ts&... vs) {
   toAppend(delim, detail::getLastElement(vs...));
   toAppendDelimStrImpl(delim, vs...);
 }
-} // folly::detail
-
+} // namespace detail
 
 /**
  * Variadic conversion to string. Appends each element in turn.
@@ -986,11 +1003,12 @@ to(Src value) {
  * toDelim<SomeString>(SomeString str) returns itself.
  */
 template <class Tgt, class Delim, class Src>
-typename std::enable_if<IsSomeString<Tgt>::value &&
-                            std::is_same<Tgt, Src>::value,
-                        Tgt>::type
-toDelim(const Delim& /* delim */, const Src& value) {
-  return value;
+typename std::enable_if<
+    IsSomeString<Tgt>::value &&
+        std::is_same<Tgt, typename std::decay<Src>::type>::value,
+    Tgt>::type
+toDelim(const Delim& /* delim */, Src&& value) {
+  return std::forward<Src>(value);
 }
 
 /**
@@ -1333,11 +1351,9 @@ inline std::string errorValue(const Src& value) {
 }
 
 template <typename Tgt, typename Src>
-using IsArithToArith = std::integral_constant<
-    bool,
+using IsArithToArith = bool_constant<
     !std::is_same<Tgt, Src>::value && !std::is_same<Tgt, bool>::value &&
-        std::is_arithmetic<Src>::value &&
-        std::is_arithmetic<Tgt>::value>;
+    std::is_arithmetic<Src>::value && std::is_arithmetic<Tgt>::value>;
 
 } // namespace detail
 
@@ -1415,8 +1431,9 @@ using ParseToResult = decltype(parseTo(StringPiece{}, std::declval<Tgt&>()));
 struct CheckTrailingSpace {
   Expected<Unit, ConversionCode> operator()(StringPiece sp) const {
     auto e = enforceWhitespaceErr(sp);
-    if (UNLIKELY(e != ConversionCode::SUCCESS))
+    if (UNLIKELY(e != ConversionCode::SUCCESS)) {
       return makeUnexpected(e);
+    }
     return unit;
   }
 };
@@ -1475,6 +1492,14 @@ tryTo(StringPiece src) {
   });
 }
 
+template <class Tgt, class Src>
+inline typename std::enable_if<
+    IsSomeString<Src>::value && !std::is_same<StringPiece, Tgt>::value,
+    Tgt>::type
+to(Src const& src) {
+  return to<Tgt>(StringPiece(src.data(), src.size()));
+}
+
 template <class Tgt>
 inline
     typename std::enable_if<!std::is_same<StringPiece, Tgt>::value, Tgt>::type
@@ -1526,7 +1551,8 @@ Tgt to(StringPiece* src) {
 
 template <class Tgt, class Src>
 typename std::enable_if<
-    std::is_enum<Src>::value && !std::is_same<Src, Tgt>::value,
+    std::is_enum<Src>::value && !std::is_same<Src, Tgt>::value &&
+        !std::is_convertible<Tgt, StringPiece>::value,
     Expected<Tgt, ConversionCode>>::type
 tryTo(const Src& value) {
   using I = typename std::underlying_type<Src>::type;
@@ -1535,7 +1561,8 @@ tryTo(const Src& value) {
 
 template <class Tgt, class Src>
 typename std::enable_if<
-    std::is_enum<Tgt>::value && !std::is_same<Src, Tgt>::value,
+    !std::is_convertible<Src, StringPiece>::value && std::is_enum<Tgt>::value &&
+        !std::is_same<Src, Tgt>::value,
     Expected<Tgt, ConversionCode>>::type
 tryTo(const Src& value) {
   using I = typename std::underlying_type<Tgt>::type;
@@ -1544,7 +1571,8 @@ tryTo(const Src& value) {
 
 template <class Tgt, class Src>
 typename std::enable_if<
-    std::is_enum<Src>::value && !std::is_same<Src, Tgt>::value,
+    std::is_enum<Src>::value && !std::is_same<Src, Tgt>::value &&
+        !std::is_convertible<Tgt, StringPiece>::value,
     Tgt>::type
 to(const Src& value) {
   return to<Tgt>(static_cast<typename std::underlying_type<Src>::type>(value));
@@ -1552,8 +1580,10 @@ to(const Src& value) {
 
 template <class Tgt, class Src>
 typename std::enable_if<
-  std::is_enum<Tgt>::value && !std::is_same<Src, Tgt>::value, Tgt>::type
-to(const Src & value) {
+    !std::is_convertible<Src, StringPiece>::value && std::is_enum<Tgt>::value &&
+        !std::is_same<Src, Tgt>::value,
+    Tgt>::type
+to(const Src& value) {
   return static_cast<Tgt>(to<typename std::underlying_type<Tgt>::type>(value));
 }
 

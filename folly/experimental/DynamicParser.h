@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,9 @@
  */
 #pragma once
 
-#include <folly/dynamic.h>
+#include <folly/CPortability.h>
 #include <folly/ScopeGuard.h>
+#include <folly/dynamic.h>
 
 namespace folly {
 
@@ -188,13 +189,13 @@ namespace detail {
 // Firstly, the input dynamic need not correspond to valid JSON.  Secondly,
 // wrapError() uses integer-keyed objects to report arrary-indexing errors.
 std::string toPseudoJson(const folly::dynamic& d);
-}  // namespace detail
+} // namespace detail
 
 /**
  * With DynamicParser::OnError::THROW, reports the first error.
  * It is forbidden to call releaseErrors() if you catch this.
  */
-struct DynamicParserParseError : public std::runtime_error {
+struct FOLLY_EXPORT DynamicParserParseError : public std::runtime_error {
   explicit DynamicParserParseError(folly::dynamic error)
     : std::runtime_error(folly::to<std::string>(
         "DynamicParserParseError: ", detail::toPseudoJson(error)
@@ -207,7 +208,8 @@ struct DynamicParserParseError : public std::runtime_error {
    *   {"nested": {"key1": {"key_errors": {"key3": "err"}, "value": 7}}}
    */
   const folly::dynamic& error() const { return error_; }
-private:
+
+ private:
   folly::dynamic error_;
 };
 
@@ -216,14 +218,14 @@ private:
  * instead of reporting an error via releaseErrors().  It is unsafe to call
  * any parser methods after catching a LogicError.
  */
-struct DynamicParserLogicError : public std::logic_error {
+struct FOLLY_EXPORT DynamicParserLogicError : public std::logic_error {
   template <typename... Args>
   explicit DynamicParserLogicError(Args&&... args)
     : std::logic_error(folly::to<std::string>(std::forward<Args>(args)...)) {}
 };
 
 class DynamicParser {
-public:
+ public:
   enum class OnError {
     // After parsing, releaseErrors() reports all parse errors.
     // Throws DynamicParserLogicError on programmer errors.
@@ -294,7 +296,7 @@ public:
     return *this;
   }
 
-private:
+ private:
   /**
    * If `fn` throws an exception, wrapError() catches it and inserts an
    * enriched description into stack_.errors_.  If lookup_key is non-null,
@@ -321,10 +323,19 @@ private:
       explicit Pop(ParserStack* sp)
         : key_(sp->key_), value_(sp->value_), stackPtr_(sp) {}
       void operator()() noexcept;  // ScopeGuard requires noexcept
-    private:
+     private:
       const folly::dynamic* key_;
       const folly::dynamic* value_;
       ParserStack* stackPtr_;
+    };
+    struct PopGuard {
+      explicit PopGuard(ParserStack* sp) : pop_(in_place, sp) {}
+      ~PopGuard() {
+        pop_ && ((*pop_)(), true);
+      }
+
+     private:
+      Optional<Pop> pop_;
     };
 
     explicit ParserStack(const folly::dynamic* input)
@@ -341,9 +352,7 @@ private:
     // Lets user code nest parser calls by recording current key+value and
     // returning an RAII guard to restore the old one.  `noexcept` since it
     // is used unwrapped.
-    folly::ScopeGuardImpl<Pop> push(
-      const folly::dynamic& k, const folly::dynamic& v
-    ) noexcept;
+    PopGuard push(const folly::dynamic& k, const folly::dynamic& v) noexcept;
 
     // Throws DynamicParserLogicError if used outside of a parsing function.
     inline const folly::dynamic& key() const;
@@ -391,6 +400,6 @@ private:
   bool allowNonStringKeyErrors_{false};  // See the setter's docblock.
 };
 
-}  // namespace folly
+} // namespace folly
 
 #include <folly/experimental/DynamicParser-inl.h>

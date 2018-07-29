@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -94,7 +94,7 @@ class ReadMostlySharedPtrCore {
   std::shared_ptr<T> ptr_;
 };
 
-}
+} // namespace detail
 
 template <typename T, typename RefCount = DefaultRefCount>
 class ReadMostlyMainPtr {
@@ -451,4 +451,4 @@ inline bool operator!=(
     const ReadMostlySharedPtr<T, RefCount>& ptr) {
   return !(ptr == nullptr);
 }
-}
+} // namespace folly

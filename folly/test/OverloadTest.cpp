@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,5 +98,5 @@ TEST(Overload, Pattern) {
   EXPECT_FALSE(variant_match(two, is_one_copy));
   EXPECT_FALSE(variant_match(two, is_one_const_copy));
 }
-}
-} // folly::test
+} // namespace test
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+#include <folly/ssl/SSLSession.h>
 #include <folly/io/async/test/AsyncSSLSocketTest.h>
 #include <folly/portability/GTest.h>
 #include <folly/portability/Sockets.h>
-#include <folly/ssl/SSLSession.h>
+
+#include <memory>
 
 using namespace std;
 using namespace testing;
@@ -27,17 +29,17 @@ namespace folly {
 
 void getfds(int fds[2]) {
   if (socketpair(PF_LOCAL, SOCK_STREAM, 0, fds) != 0) {
-    LOG(ERROR) << "failed to create socketpair: " << strerror(errno);
+    LOG(ERROR) << "failed to create socketpair: " << errnoStr(errno);
   }
   for (int idx = 0; idx < 2; ++idx) {
     int flags = fcntl(fds[idx], F_GETFL, 0);
     if (flags == -1) {
       LOG(ERROR) << "failed to get flags for socket " << idx << ": "
-                 << strerror(errno);
+                 << errnoStr(errno);
     }
     if (fcntl(fds[idx], F_SETFL, flags | O_NONBLOCK) != 0) {
       LOG(ERROR) << "failed to put socket " << idx
-                 << " in non-blocking mode: " << strerror(errno);
+                 << " in non-blocking mode: " << errnoStr(errno);
     }
   }
 }
@@ -97,7 +99,7 @@ TEST_F(SSLSessionTest, BasicTest) {
     eventBase.loop();
     ASSERT_TRUE(client.handshakeSuccess_);
 
-    sess.reset(new SSLSession(clientPtr->getSSLSession()));
+    sess = std::make_unique<SSLSession>(clientPtr->getSSLSession());
     ASSERT_NE(sess.get(), nullptr);
   }
 
@@ -186,4 +188,4 @@ TEST_F(SSLSessionTest, GetSessionID) {
   auto sessID = sess->getSessionID();
   ASSERT_GE(sessID.length(), 0);
 }
-}
+} // namespace folly

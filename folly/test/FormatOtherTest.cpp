@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,7 +96,7 @@ void testFormatSeq() {
   EXPECT_EQ("10 20 0030", svformat("{} {} {:04}", v));
 }
 
-}  // namespace
+} // namespace
 
 TEST(FormatOther, fbvector) {
   testFormatSeq<fbvector<int>>();

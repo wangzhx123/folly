@@ -56,12 +56,35 @@ CXXFLAGS="$STD $CXXFLAGS"
 # expose required -std option via pkg-config
 PKG_CXXFLAGS=$STD
 
+# See if -Wunknown-warning-option is supported
+AC_MSG_CHECKING(
+  [whether -Wunknown-warning-option is supported])
+AC_CACHE_VAL([folly_cv_cxx_unknown_warning_option_support], [
+  folly_save_CXXFLAGS="$CXXFLAGS"
+  CXXFLAGS="$CXXFLAGS -Werror=unknown-warning-option"
+  AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([[]], [[]])],
+    [
+      # The compiler didn't completely error out on -Werror=unknown-warning-option
+      CXXFLAGS="$CXXFLAGS -Werror=unknown-warning-option -Wthis-is-an-unknown-option-that-should-error"
+      AC_COMPILE_IFELSE(
+        [AC_LANG_PROGRAM([[]], [[]])],
+        [folly_cv_cxx_unknown_warning_option_support=no],
+        [folly_cv_cxx_unknown_warning_option_support=yes])
+    ],
+    [folly_cv_cxx_unknown_warning_option_support=no])
+  CXXFLAGS="$folly_save_CXXFLAGS"])
+AC_MSG_RESULT([$folly_cv_cxx_unknown_warning_option_support])
+
 # See if -Wshadow-local and -Wshadow-compatible-local are supported
 AC_MSG_CHECKING(
   [whether -Wshadow-local and -Wshadow-compatible-local are supported])
 AC_CACHE_VAL([folly_cv_cxx_shadow_local_support], [
   folly_save_CXXFLAGS="$CXXFLAGS"
   CXXFLAGS="$CXXFLAGS -Wshadow-local -Wshadow-compatible-local"
+  if test "$folly_cv_cxx_unknown_warning_option_support" = yes; then
+    CXXFLAGS="$CXXFLAGS -Werror=unknown-warning-option"
+  fi
   AC_COMPILE_IFELSE(
     [AC_LANG_PROGRAM([[]], [[]])],
     [folly_cv_cxx_shadow_local_support=yes],
@@ -525,6 +548,22 @@ AC_DEFINE_UNQUOTED(
   [Define to 1 if the compiler has VLA (variable-length array) support,
    otherwise define to 0])
 
+AC_CACHE_CHECK(
+  [for variable template support],
+  [folly_cv_prog_cc_have_variable_templates],
+  [AC_COMPILE_IFELSE(
+    [AC_LANG_SOURCE[
+      template <class> constexpr bool g = true;
+      int main() {}
+    ]],
+    [folly_cv_prog_cc_have_variable_templates=yes],
+    [folly_cv_prog_cc_have_variable_templates=no])])
+
+AM_CONDITIONAL(
+  [HAVE_VARIABLE_TEMPLATES],
+  [test "x${folly_cv_prog_cc_have_variable_templates}" = "xyes"],
+  [Define to 1 if the compiler supports variable templates])
+
 # Checks for library functions.
 AC_CHECK_FUNCS([malloc_size \
                 malloc_usable_size \
@@ -547,12 +586,8 @@ AC_ARG_ENABLE([follytestmain],
    [use_follytestmain=${enableval}], [use_follytestmain=yes])
 
 # libdwarf used to install in /usr/include, now installs in /usr/include/libdwarf.
-AC_CHECK_HEADERS([libdwarf/dwarf.h dwarf.h], [break])
-# Check whether we have both the library and the header
 have_libdwarf=no
-AS_IF([test "x${ac_cv_header_libdwarf_dwarf_h}" = xyes], [have_libdwarf=yes])
-AS_IF([test "x${ac_cv_header_dwarf_h}" = xyes], [have_libdwarf=yes])
-
+AC_CHECK_HEADERS([libdwarf/dwarf.h dwarf.h], [have_libdwarf=yes])
 
 AC_ARG_ENABLE([mobile],
    AS_HELP_STRING([--enable-mobile],
@@ -566,6 +601,24 @@ AS_IF([test "x${mobile}" = "xyes"], [
 AC_ARG_ENABLE([exception-tracer],
     AS_HELP_STRING([--enable-exception-tracer], [enables building exception tracer]),
     [build_exception_tracer=${enableval}], [build_exception_tracer=no])
+
+AC_ARG_ENABLE([symbolizer],
+    AS_HELP_STRING([--enable-symbolizer], [try to build symbolizer if possible]),
+    [folly_try_use_symbolizer=${enableval}], [folly_try_use_symbolizer=yes])
+
+folly_use_symbolizer=no
+if test "$folly_try_use_symbolizer" = yes; then
+  if test "$build_os" = "linux-gnu" && test "$have_libdwarf" = yes; then
+      AC_CHECK_HEADER(
+        [elf.h],
+        AC_CHECK_LIB([unwind], [backtrace], [folly_use_symbolizer=yes]),
+      )
+  fi
+fi
+if test "$folly_use_symbolizer" = yes; then
+  AC_DEFINE([USE_SYMBOLIZER], [1], [Define to 1 if we should use the symbolizer in init])
+fi
+
 
 # Include directory that contains "folly" so #include <folly/Foo.h> works
 AM_CPPFLAGS='-I$(top_srcdir)/..'
@@ -594,6 +647,7 @@ AM_CONDITIONAL([FOLLY_TESTMAIN], [test "x${use_follytestmain}" = "xyes"])
 AM_CONDITIONAL([HAVE_LIBDWARF], [test "x${have_libdwarf}" = "xyes"])
 AM_CONDITIONAL([HAVE_BOOST_CONTEXT], [test "x${ax_cv_boost_context}" = "xyes"])
 AM_CONDITIONAL([EXCEPTION_TRACER], [test "x${build_exception_tracer}" = "xyes"])
+AM_CONDITIONAL([USE_SYMBOLIZER], [test "x${folly_use_symbolizer}" = "xyes"])
 
 # remove pkg-config deps from dependent libraries
 # (at least for pkg-config file purposes)
@@ -601,6 +655,7 @@ FB_FILTER_PKG_LIBS([$AM_LDFLAGS $LIBS])
 
 # Output
 AC_CONFIG_FILES([Makefile
+                 chrono/test/Makefile
                  io/test/Makefile
                  libfolly.pc
                  test/Makefile
@@ -608,7 +663,9 @@ AC_CONFIG_FILES([Makefile
                  experimental/Makefile
                  experimental/io/test/Makefile
                  experimental/symbolizer/Makefile
-                 init/Makefile])
+                 init/Makefile
+                 logging/example/Makefile
+                 stats/test/Makefile])
 
 AM_COND_IF([EXCEPTION_TRACER],
            [AC_CONFIG_FILES([experimental/exception_tracer/Makefile])])

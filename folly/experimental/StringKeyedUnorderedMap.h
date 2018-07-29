@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,9 +24,9 @@
 #include <unordered_map>
 #include <utility>
 
-#include <folly/Hash.h>
 #include <folly/Range.h>
 #include <folly/experimental/StringKeyedCommon.h>
+#include <folly/hash/Hash.h>
 
 namespace folly {
 
@@ -47,7 +47,7 @@ class StringKeyedUnorderedMap
  private:
   using Base = std::unordered_map<StringPiece, Value, Hash, Eq, Alloc>;
 
-public:
+ public:
   typedef typename Base::key_type key_type;
   typedef typename Base::mapped_type mapped_type;
   typedef typename Base::value_type value_type;
@@ -236,4 +236,4 @@ public:
   }
 };
 
-} // folly
+} // namespace folly

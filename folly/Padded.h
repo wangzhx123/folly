@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@
 #include <boost/iterator/iterator_adaptor.hpp>
 
 #include <folly/Portability.h>
-#include <folly/ContainerTraits.h>
+#include <folly/Traits.h>
 
 /**
  * Code that aids in storing data aligned on block (possibly cache-line)
@@ -67,7 +67,7 @@ struct NodeValid<T, NS,
                      NS % alignof(T) == 0)>::type> {
   typedef void type;
 };
-}  // namespace detail
+} // namespace detail
 
 template <class T, size_t NS>
 class Node<T, NS, typename detail::NodeValid<T,NS>::type> {
@@ -145,6 +145,33 @@ template <class Iter> class Iterator;
 
 namespace detail {
 
+template <typename Void, typename Container, typename... Args>
+struct padded_emplace_back_or_push_back_ {
+  static decltype(auto) go(Container& container, Args&&... args) {
+    using Value = typename Container::value_type;
+    return container.push_back(Value(std::forward<Args>(args)...));
+  }
+};
+
+template <typename Container, typename... Args>
+struct padded_emplace_back_or_push_back_<
+    void_t<decltype(
+        std::declval<Container&>().emplace_back(std::declval<Args>()...))>,
+    Container,
+    Args...> {
+  static decltype(auto) go(Container& container, Args&&... args) {
+    return container.emplace_back(std::forward<Args>(args)...);
+  }
+};
+
+template <typename Container, typename... Args>
+decltype(auto) padded_emplace_back_or_push_back(
+    Container& container,
+    Args&&... args) {
+  using impl = padded_emplace_back_or_push_back_<void, Container, Args...>;
+  return impl::go(container, std::forward<Args>(args)...);
+}
+
 // Helper class to transfer the constness from From (a lvalue reference)
 // and create a lvalue reference to To.
 //
@@ -190,7 +217,7 @@ struct IteratorBase {
   > type;
 };
 
-}  // namespace detail
+} // namespace detail
 
 /**
  * Wrapper around iterators to Node to return iterators to the underlying
@@ -495,7 +522,7 @@ class Adaptor {
  private:
   value_type* allocate_back() {
     if (lastCount_ == Node::kElementCount) {
-      container_emplace_back_or_push_back(c_);
+      detail::padded_emplace_back_or_push_back(c_);
       lastCount_ = 0;
     }
     return &c_.back().data()[lastCount_++];
@@ -510,5 +537,5 @@ class Adaptor {
   size_t lastCount_;  // number of elements in last Node
 };
 
-}  // namespace padded
-}  // namespace folly
+} // namespace padded
+} // namespace folly

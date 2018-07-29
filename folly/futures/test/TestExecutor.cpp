@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "TestExecutor.h"
+#include <folly/futures/test/TestExecutor.h>
 
 using namespace std;
 
@@ -43,6 +43,7 @@ TestExecutor::TestExecutor(size_t numThreads) {
 
 TestExecutor::~TestExecutor() {
   for (auto& worker : workers_) {
+    (void)worker;
     addImpl({});
   }
 
@@ -69,4 +70,4 @@ void TestExecutor::addImpl(Func f) {
   cv_.notify_one();
 }
 
-} // folly
+} // namespace folly

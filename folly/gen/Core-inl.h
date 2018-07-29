@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@
 
 // Ignore shadowing warnings within this file, so includers can use -Wshadow.
 FOLLY_PUSH_WARNING
-FOLLY_GCC_DISABLE_WARNING("-Wshadow")
+FOLLY_GNU_DISABLE_WARNING("-Wshadow")
 
 namespace folly {
 namespace gen {
@@ -57,7 +57,8 @@ class IsCompatibleSignature<Candidate, ExpectedReturn(ArgTypes...)> {
   static constexpr bool testArgs(...) {
     return false;
   }
-public:
+
+ public:
   static constexpr bool value = testArgs<Candidate>(nullptr);
 };
 
@@ -351,7 +352,8 @@ class Chain : public GenImpl<Value,
                              Chain<Value, First, Second>> {
   First first_;
   Second second_;
-public:
+
+ public:
   explicit Chain(First first, Second second)
       : first_(std::move(first))
       , second_(std::move(second)) {}
@@ -371,8 +373,8 @@ public:
   static constexpr bool infinite = First::infinite || Second::infinite;
 };
 
-} // detail
-} // gen
-} // folly
+} // namespace detail
+} // namespace gen
+} // namespace folly
 
 FOLLY_POP_WARNING

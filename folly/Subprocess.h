@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 /**
  * Subprocess library, modeled after Python's subprocess module
  * (http://docs.python.org/2/library/subprocess.html)
@@ -93,8 +92,9 @@
 
 #pragma once
 
-#include <sys/types.h>
 #include <signal.h>
+#include <sys/types.h>
+
 #if __APPLE__
 #include <sys/wait.h>
 #else
@@ -102,10 +102,11 @@
 #endif
 
 #include <exception>
-#include <vector>
 #include <string>
+#include <vector>
 
 #include <boost/container/flat_map.hpp>
+#include <boost/operators.hpp>
 
 #include <folly/Exception.h>
 #include <folly/File.h>
@@ -126,7 +127,6 @@ namespace folly {
  */
 class Subprocess;
 class ProcessReturnCode {
-  friend class Subprocess;
  public:
   enum State {
     // Subprocess starts in the constructor, so this state designates only
@@ -134,12 +134,22 @@ class ProcessReturnCode {
     NOT_STARTED,
     RUNNING,
     EXITED,
-    KILLED
+    KILLED,
   };
+
+  static ProcessReturnCode makeNotStarted() {
+    return ProcessReturnCode(RV_NOT_STARTED);
+  }
+
+  static ProcessReturnCode makeRunning() {
+    return ProcessReturnCode(RV_RUNNING);
+  }
+
+  static ProcessReturnCode make(int status);
 
   // Default-initialized for convenience. Subprocess::returnCode() will
   // never produce this value.
-  ProcessReturnCode() : ProcessReturnCode(RV_NOT_STARTED) {}
+  ProcessReturnCode() : rawStatus_(RV_NOT_STARTED) {}
 
   // Trivially copyable
   ProcessReturnCode(const ProcessReturnCode& p) = default;
@@ -209,7 +219,7 @@ class ProcessReturnCode {
 /**
  * Base exception thrown by the Subprocess methods.
  */
-class SubprocessError : public std::runtime_error {
+class FOLLY_EXPORT SubprocessError : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
 };
@@ -217,7 +227,7 @@ class SubprocessError : public std::runtime_error {
 /**
  * Exception thrown by *Checked methods of Subprocess.
  */
-class CalledProcessError : public SubprocessError {
+class FOLLY_EXPORT CalledProcessError : public SubprocessError {
  public:
   explicit CalledProcessError(ProcessReturnCode rc);
   ~CalledProcessError() throw() override = default;
@@ -229,7 +239,7 @@ class CalledProcessError : public SubprocessError {
 /**
  * Exception thrown if the subprocess cannot be started.
  */
-class SubprocessSpawnError : public SubprocessError {
+class FOLLY_EXPORT SubprocessSpawnError : public SubprocessError {
  public:
   SubprocessSpawnError(const char* executable, int errCode, int errnoValue);
   ~SubprocessSpawnError() throw() override = default;
@@ -352,7 +362,7 @@ class Subprocess {
 
     /**
      * Child will be made a process group leader when it starts. Upside: one
-     * can reliably all its kill non-daemonizing descendants.  Downside: the
+     * can reliably kill all its non-daemonizing descendants.  Downside: the
      * child will not receive Ctrl-C etc during interactive use.
      */
     Options& processGroupLeader() {
@@ -475,7 +485,7 @@ class Subprocess {
    * The shell to use is taken from the environment variable $SHELL,
    * or /bin/sh if $SHELL is unset.
    */
-  FOLLY_DEPRECATED("Prefer not running in a shell or use `shellify`.")
+  [[deprecated("Prefer not running in a shell or use `shellify`.")]]
   explicit Subprocess(
       const std::string& cmd,
       const Options& options = Options(),
@@ -812,9 +822,6 @@ class Subprocess {
   std::vector<ChildPipe> takeOwnershipOfPipes();
 
  private:
-  static const int RV_RUNNING = ProcessReturnCode::RV_RUNNING;
-  static const int RV_NOT_STARTED = ProcessReturnCode::RV_NOT_STARTED;
-
   // spawn() sets up a pipe to read errors from the child,
   // then calls spawnInternal() to do the bulk of the work.  Once
   // spawnInternal() returns it reads the error pipe to see if the child
@@ -850,7 +857,7 @@ class Subprocess {
   size_t findByChildFd(const int childFd) const;
 
   pid_t pid_{-1};
-  ProcessReturnCode returnCode_{RV_NOT_STARTED};
+  ProcessReturnCode returnCode_;
 
   /**
    * Represents a pipe between this process, and the child process (or its
@@ -881,4 +888,4 @@ class Subprocess {
   std::vector<Pipe> pipes_;
 };
 
-}  // namespace folly
+} // namespace folly

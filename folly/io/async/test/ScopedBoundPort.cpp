@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,10 +31,10 @@ ScopedBoundPort::ScopedBoundPort(IPAddress host) {
 }
 
 ScopedBoundPort::~ScopedBoundPort() {
-  ebth_->getEventBase()->runInEventBaseThread([sock = std::move(sock_)]{});
+  ebth_->getEventBase()->runInEventBaseThread([sock = std::move(sock_)] {});
 }
 
 SocketAddress ScopedBoundPort::getAddress() const {
   return sock_->getAddress();
 }
-}
+} // namespace folly

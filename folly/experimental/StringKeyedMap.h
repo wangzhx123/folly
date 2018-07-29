@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,9 @@
 #pragma once
 
 #include <initializer_list>
-#include <memory>
 #include <map>
+#include <memory>
+
 #include <folly/Range.h>
 #include <folly/experimental/StringKeyedCommon.h>
 
@@ -33,15 +34,16 @@ namespace folly {
  * It uses kind of hack: string pointed by StringPiece is copied when
  * StringPiece is inserted into map
  */
-template <class Value,
-          class Compare = std::less<StringPiece>,
-          class Alloc = std::allocator<std::pair<const StringPiece, Value>>>
+template <
+    class Value,
+    class Compare = std::less<StringPiece>,
+    class Alloc = std::allocator<std::pair<const StringPiece, Value>>>
 class StringKeyedMap
     : private std::map<StringPiece, Value, Compare, Alloc> {
-private:
+ private:
   using Base = std::map<StringPiece, Value, Compare, Alloc>;
 
-public:
+ public:
   typedef typename Base::key_type key_type;
   typedef typename Base::mapped_type mapped_type;
   typedef typename Base::value_type value_type;
@@ -209,4 +211,4 @@ public:
   }
 };
 
-} // folly
+} // namespace folly

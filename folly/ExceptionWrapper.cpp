@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 
 #include <iostream>
 
-#include <folly/Logging.h>
+#include <folly/GLog.h>
 
 namespace folly {
 
@@ -58,6 +58,20 @@ std::exception const* get_std_exception_(std::exception_ptr eptr) noexcept {
     return nullptr;
   }
 }
+} // namespace
+
+exception_wrapper exception_wrapper::from_exception_ptr(
+    std::exception_ptr const& ptr) noexcept {
+  if (!ptr) {
+    return exception_wrapper();
+  }
+  try {
+    std::rethrow_exception(ptr);
+  } catch (std::exception& e) {
+    return exception_wrapper(std::current_exception(), e);
+  } catch (...) {
+    return exception_wrapper(std::current_exception());
+  }
 }
 
 exception_wrapper::exception_wrapper(std::exception_ptr ptr) noexcept
@@ -76,11 +90,11 @@ exception_wrapper::exception_wrapper(std::exception_ptr ptr) noexcept
   }
 }
 
-[[noreturn]] void exception_wrapper::onNoExceptionError() {
+[[noreturn]] void exception_wrapper::onNoExceptionError(
+    char const* const name) {
   std::ios_base::Init ioinit_; // ensure std::cerr is alive
-  std::cerr
-      << "Cannot use `throw_exception` with an empty folly::exception_wrapper"
-      << std::endl;
+  std::cerr << "Cannot use `" << name
+            << "` with an empty folly::exception_wrapper" << std::endl;
   std::terminate();
 }
 
@@ -88,4 +102,4 @@ fbstring exceptionStr(exception_wrapper const& ew) {
   return ew.what();
 }
 
-} // folly
+} // namespace folly

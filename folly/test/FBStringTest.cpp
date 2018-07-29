@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,17 +21,18 @@
 
 #include <atomic>
 #include <cstdlib>
-
 #include <iomanip>
 #include <list>
 #include <sstream>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/random.hpp>
 
-#include <folly/Foreach.h>
+#include <folly/Conv.h>
 #include <folly/Portability.h>
 #include <folly/Random.h>
-#include <folly/Conv.h>
+#include <folly/Utility.h>
+#include <folly/container/Foreach.h>
 #include <folly/portability/GTest.h>
 
 using namespace std;
@@ -75,7 +76,7 @@ std::list<char> RandomList(unsigned int maxSize) {
  }
   return lst;
 }
-}
+} // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // Tests begin here
@@ -143,12 +144,16 @@ template <class String> void clause11_21_4_2_h(String & test) {
   EXPECT_EQ(test, s2);
   // Constructor from other iterators
   std::list<char> lst;
-  for (auto c : test) lst.push_back(c);
+  for (auto c : test) {
+    lst.push_back(c);
+  }
   String s3(lst.begin(), lst.end());
   EXPECT_EQ(test, s3);
   // Constructor from wchar_t iterators
   std::list<wchar_t> lst1;
-  for (auto c : test) lst1.push_back(c);
+  for (auto c : test) {
+    lst1.push_back(c);
+  }
   String s4(lst1.begin(), lst1.end());
   EXPECT_EQ(test, s4);
   // Constructor from wchar_t pointers
@@ -249,8 +254,11 @@ template <class String> void clause11_21_4_4(String & test) {
   // exercise empty
   string empty("empty");
   string notempty("not empty");
-  if (test.empty()) test = String(empty.begin(), empty.end());
-  else test = String(notempty.begin(), notempty.end());
+  if (test.empty()) {
+    test = String(empty.begin(), empty.end());
+  } else {
+    test = String(notempty.begin(), notempty.end());
+  }
 }
 
 template <class String> void clause11_21_4_5(String & test) {
@@ -262,6 +270,9 @@ template <class String> void clause11_21_4_5(String & test) {
     EXPECT_EQ(test[i], test.at(i));
     test = test[i];
   }
+
+  EXPECT_THROW(test.at(test.size()), std::out_of_range);
+  EXPECT_THROW(as_const(test).at(test.size()), std::out_of_range);
 }
 
 template <class String> void clause11_21_4_6_1(String & test) {
@@ -828,8 +839,11 @@ template <class String> void clause11_21_4_7_9_a(String & test) {
   String s;
   randomString(&s, maxString);
   int tristate = test.compare(s);
-  if (tristate > 0) tristate = 1;
-  else if (tristate < 0) tristate = 2;
+  if (tristate > 0) {
+    tristate = 1;
+  } else if (tristate < 0) {
+    tristate = 2;
+  }
   Num2String(test, tristate);
 }
 
@@ -840,8 +854,11 @@ template <class String> void clause11_21_4_7_9_b(String & test) {
     random(0, test.size()),
     random(0, test.size()),
     s);
-  if (tristate > 0) tristate = 1;
-  else if (tristate < 0) tristate = 2;
+  if (tristate > 0) {
+    tristate = 1;
+  } else if (tristate < 0) {
+    tristate = 2;
+  }
   Num2String(test, tristate);
 }
 
@@ -854,8 +871,11 @@ template <class String> void clause11_21_4_7_9_c(String & test) {
     str,
     random(0, str.size()),
     random(0, str.size()));
-  if (tristate > 0) tristate = 1;
-  else if (tristate < 0) tristate = 2;
+  if (tristate > 0) {
+    tristate = 1;
+  } else if (tristate < 0) {
+    tristate = 2;
+  }
   Num2String(test, tristate);
 }
 
@@ -863,9 +883,12 @@ template <class String> void clause11_21_4_7_9_d(String & test) {
   String s;
   randomString(&s, maxString);
   int tristate = test.compare(s.c_str());
-  if (tristate > 0) tristate = 1;
-  else if (tristate < 0) tristate = 2;
-                Num2String(test, tristate);
+  if (tristate > 0) {
+    tristate = 1;
+  } else if (tristate < 0) {
+    tristate = 2;
+  }
+  Num2String(test, tristate);
 }
 
 template <class String> void clause11_21_4_7_9_e(String & test) {
@@ -876,8 +899,11 @@ template <class String> void clause11_21_4_7_9_e(String & test) {
     random(0, test.size()),
     str.c_str(),
     random(0, str.size()));
-  if (tristate > 0) tristate = 1;
-  else if (tristate < 0) tristate = 2;
+  if (tristate > 0) {
+    tristate = 1;
+  } else if (tristate < 0) {
+    tristate = 2;
+  }
   Num2String(test, tristate);
 }
 
@@ -996,7 +1022,10 @@ TEST(FBString, testAllClauses) {
                void(*f_fbstring)(folly::fbstring&),
                void(*f_wfbstring)(folly::basic_fbstring<wchar_t>&)) {
     do {
-      if (1) {} else EXPECT_TRUE(1) << "Testing clause " << clause;
+      if (true) {
+      } else {
+        EXPECT_TRUE(1) << "Testing clause " << clause;
+      }
       randomString(&r);
       c = r;
       EXPECT_EQ(c, r);
@@ -1020,7 +1049,9 @@ TEST(FBString, testAllClauses) {
       auto mbv = std::vector<char>(wret + 1);
       auto mb = mbv.data();
       int ret = wcstombs(mb, wc.c_str(), wret + 1);
-      if (ret == wret) mb[wret] = '\0';
+      if (ret == wret) {
+        mb[wret] = '\0';
+      }
       const char *mc = c.c_str();
       std::string one(mb);
       std::string two(mc);
@@ -1209,7 +1240,7 @@ TEST(FBString, testMoveOperatorPlusRhs) {
 //      other than libstdc++. Someday if we deem it important to present
 //      identical undefined behavior for other platforms, we can re-visit this.
 TEST(FBString, testConstructionFromLiteralZero) {
-  EXPECT_THROW(fbstring s(0), std::logic_error);
+  EXPECT_THROW(fbstring s(nullptr), std::logic_error);
 }
 
 TEST(FBString, testFixedBugs) {
@@ -1419,7 +1450,7 @@ struct TestStructStringAllocator : std::allocator<char> {
   }
 };
 
-}  // anon namespace
+} // namespace
 
 TEST(FBStringCtorTest, DefaultInitStructDefaultAlloc) {
   TestStructDefaultAllocator t1 { };

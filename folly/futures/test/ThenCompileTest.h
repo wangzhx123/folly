@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,7 +65,7 @@ aStdFunction(typename std::enable_if<isFuture<Ret>::value, bool>::type = true) {
 }
 
 class SomeClass {
-public:
+ public:
   template <class Ret, class... Params>
   static
   typename std::enable_if<!isFuture<Ret>::value, Ret>::type
@@ -95,4 +95,4 @@ public:
   }
 };
 
-}
+} // namespace folly

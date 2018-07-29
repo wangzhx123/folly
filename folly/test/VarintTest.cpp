@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ void testVarint(uint64_t val, std::initializer_list<uint8_t> bytes) {
     uint8_t buf[kMaxVarintLength64];
     EXPECT_EQ(expected.size(), encodeVarint(val, buf));
     EXPECT_TRUE(ByteRange(buf, expected.size()) == expected);
+    EXPECT_EQ(expected.size(), encodeVarintSize(val));
   }
 
   {
@@ -96,6 +97,17 @@ TEST(Varint, Simple) {
              {0xff, 0xff, 0xff, 0xff, 0x0f});
   testVarint(static_cast<uint64_t>(-1),
              {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01});
+}
+
+void testVarintFail(std::initializer_list<uint8_t> bytes) {
+  size_t n = bytes.size();
+  ByteRange data(&*bytes.begin(), n);
+  auto ret = tryDecodeVarint(data);
+  EXPECT_FALSE(ret.hasValue());
+}
+
+TEST(Varint, Fail) {
+  testVarintFail({0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff});
 }
 
 TEST(ZigZag, Simple) {
@@ -183,9 +195,9 @@ BENCHMARK(VarintDecoding, iters) {
   }
 }
 
-}  // namespace
-
-}}  // namespaces
+} // namespace
+} // namespace test
+} // namespace folly
 
 int main(int argc, char *argv[]) {
   testing::InitGoogleTest(&argc, argv);

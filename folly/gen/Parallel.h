@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ class Sub;
 template <class Iterator>
 class ChunkedRangeSource;
 
-}
+} // namespace detail
 
 /**
  * chunked() - For producing values from a container in slices.
@@ -105,7 +105,7 @@ template <class Sink, class Sub = detail::Sub<Sink>>
 Sub sub(Sink sink) {
   return Sub(std::move(sink));
 }
-} // !namespace gen
-} // !namespace folly
+} // namespace gen
+} // namespace folly
 
 #include <folly/gen/Parallel-inl.h>

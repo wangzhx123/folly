@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,11 +40,11 @@ class EventBaseLocalBase : public EventBaseLocalBaseBase, boost::noncopyable {
   void* getVoid(EventBase& evb);
 
   folly::Synchronized<std::unordered_set<EventBase*>> eventBases_;
-  static std::atomic<uint64_t> keyCounter_;
-  uint64_t key_{keyCounter_++};
+  static std::atomic<std::size_t> keyCounter_;
+  std::size_t key_{keyCounter_++};
 };
 
-}
+} // namespace detail
 
 /**
  * A storage abstraction for data that should be tied to an EventBase.
@@ -70,10 +70,10 @@ class EventBaseLocalBase : public EventBaseLocalBaseBase, boost::noncopyable {
  * by the get() method after set/erase is called.  If shared ownership is
  * needed, use a EventBaseLocal<shared_ptr<...>>.
  */
-template<typename T>
+template <typename T>
 class EventBaseLocal : public detail::EventBaseLocalBase {
  public:
-  EventBaseLocal(): EventBaseLocalBase() {}
+  EventBaseLocal() : EventBaseLocalBase() {}
 
   T* get(EventBase& evb) {
     return static_cast<T*>(getVoid(evb));
@@ -116,5 +116,4 @@ class EventBaseLocal : public detail::EventBaseLocalBase {
   }
 };
 
-
-}
+} // namespace folly

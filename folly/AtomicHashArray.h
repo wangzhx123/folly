@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,9 +37,9 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/noncopyable.hpp>
 
-#include <folly/Hash.h>
 #include <folly/ThreadCachedInt.h>
 #include <folly/Utility.h>
+#include <folly/hash/Hash.h>
 
 namespace folly {
 
@@ -80,7 +80,7 @@ inline void checkLegalKeyIfKeyTImpl(KeyT key_in, KeyT emptyKey,
   DCHECK_NE(key_in, lockedKey);
   DCHECK_NE(key_in, erasedKey);
 }
-}  // namespace detail
+} // namespace detail
 
 template <
     class KeyT,
@@ -127,7 +127,7 @@ class AtomicHashArray : boost::noncopyable {
   const KeyT    kLockedKey_;
   const KeyT    kErasedKey_;
 
-  template<class ContT, class IterVal>
+  template <class ContT, class IterVal>
   struct aha_iterator;
 
   typedef aha_iterator<const AtomicHashArray,const value_type> const_iterator;
@@ -179,7 +179,6 @@ class AtomicHashArray : boost::noncopyable {
     uint32_t entryCountThreadCacheSize;
     size_t capacity; // if positive, overrides maxLoadFactor
 
-  public:
     //  Cannot have constexpr ctor because some compilers rightly complain.
     Config() : emptyKey((KeyT)-1),
                lockedKey((KeyT)-2),
@@ -210,17 +209,19 @@ class AtomicHashArray : boost::noncopyable {
    *
    *   See folly/test/ArrayHashArrayTest.cpp for sample usage.
    */
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal>
   iterator find(LookupKeyT k) {
     return iterator(this,
         findInternal<LookupKeyT, LookupHashFcn, LookupEqualFcn>(k).idx);
   }
 
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal>
   const_iterator find(LookupKeyT k) const {
     return const_cast<AtomicHashArray*>(this)->
       find<LookupKeyT, LookupHashFcn, LookupEqualFcn>(k);
@@ -255,11 +256,12 @@ class AtomicHashArray : boost::noncopyable {
    *   equal key is already present, this method converts 'key_in' to a key of
    *   type KeyT using the provided LookupKeyToKeyFcn.
    */
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal,
-            typename LookupKeyToKeyFcn = key_convert,
-            typename... ArgTs>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal,
+      typename LookupKeyToKeyFcn = key_convert,
+      typename... ArgTs>
   std::pair<iterator,bool> emplace(LookupKeyT key_in, ArgTs&&... vCtorArgs) {
     SimpleRetT ret = insertInternal<LookupKeyT,
                                     LookupHashFcn,
@@ -351,9 +353,10 @@ friend class AtomicHashMap<KeyT,
       typename... ArgTs>
   SimpleRetT insertInternal(LookupKeyT key, ArgTs&&... vCtorArgs);
 
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal>
   SimpleRetT findInternal(const LookupKeyT key);
 
   template <typename MaybeKeyT>

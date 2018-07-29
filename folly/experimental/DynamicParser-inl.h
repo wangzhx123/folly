@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@
  */
 #pragma once
 
-#include <folly/Conv.h>
 #include <boost/function_types/is_member_pointer.hpp>
 #include <boost/function_types/parameter_types.hpp>
 #include <boost/mpl/equal.hpp>
@@ -32,17 +31,20 @@
 #include <boost/mpl/transform.hpp>
 #include <boost/mpl/vector.hpp>
 
+#include <folly/Conv.h>
+
 namespace folly {
 
 // Auto-conversion of key/value based on callback signature, documented in
 // DynamicParser.h.
 namespace detail {
 class IdentifyCallable {
-public:
+ public:
   enum class Kind { Function, MemberFunction };
   template <typename Fn>
   constexpr static Kind getKind() { return test<Fn>(nullptr); }
-private:
+
+ private:
   template <typename Fn>
   using IsMemFn = typename boost::function_types::template is_member_pointer<
     decltype(&Fn::operator())
@@ -211,7 +213,7 @@ template <typename Fn> EnableForArgTypes<Fn, int64_t, std::string>
 invokeForKeyValue(Fn fn, const folly::dynamic& k, const folly::dynamic& v) {
   fn(k.asInt(), v.asString());
 }
-}  // namespace detail
+} // namespace detail
 
 template <typename Fn>
 void DynamicParser::optional(const folly::dynamic& key, Fn fn) {
@@ -298,4 +300,4 @@ inline const folly::dynamic& DynamicParser::ParserStack::value() const{
   return *value_;
 }
 
-}  // namespace folly
+} // namespace folly

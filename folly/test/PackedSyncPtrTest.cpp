@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ struct ignore { PackedSyncPtr<int> foo; char c; } FOLLY_PACK_ATTR;
 FOLLY_PACK_POP
 static_assert(sizeof(ignore) == 9, "PackedSyncPtr wasn't packable");
 
-}
+} // namespace
 
 TEST(PackedSyncPtr, Basic) {
   PackedSyncPtr<std::pair<int,int>> sp;
@@ -66,7 +66,7 @@ TEST(PackedSyncPtr, Basic) {
 }
 
 // Here we use the PackedSyncPtr to lock the whole SyncVec (base, *base, and sz)
-template<typename T>
+template <typename T>
 struct SyncVec {
   PackedSyncPtr<T> base;
   SyncVec() { base.init(); }

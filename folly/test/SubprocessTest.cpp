@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@
 #include <folly/portability/GTest.h>
 #include <folly/portability/Unistd.h>
 
-FOLLY_GCC_DISABLE_WARNING("-Wdeprecated-declarations")
+FOLLY_GNU_DISABLE_WARNING("-Wdeprecated-declarations")
 
 using namespace folly;
 
@@ -183,7 +183,7 @@ boost::container::flat_set<int> getOpenFds() {
   return fds;
 }
 
-template<class Runnable>
+template <class Runnable>
 void checkFdLeak(const Runnable& r) {
   // Get the currently open fds.  Check that they are the same both before and
   // after calling the specified function.  We read the open fds from /proc.
@@ -195,7 +195,7 @@ void checkFdLeak(const Runnable& r) {
   auto fdsAfter = getOpenFds();
   EXPECT_EQ(fdsAfter.size(), fdsBefore.size());
 }
-}
+} // namespace
 
 // Make sure Subprocess doesn't leak any file descriptors
 TEST(SimpleSubprocessTest, FdLeakTest) {
@@ -457,7 +457,7 @@ bool readToString(int fd, std::string& buf, size_t maxSize) {
   return (n == 0);
 }
 
-}  // namespace
+} // namespace
 
 TEST(CommunicateSubprocessTest, Chatty) {
   checkFdLeak([] {

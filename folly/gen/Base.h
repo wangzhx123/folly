@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -84,7 +84,7 @@ namespace folly {
 namespace gen {
 
 class Less {
-public:
+ public:
   template <class First, class Second>
   auto operator()(const First& first, const Second& second) const ->
   decltype(first < second) {
@@ -93,7 +93,7 @@ public:
 };
 
 class Greater {
-public:
+ public:
   template <class First, class Second>
   auto operator()(const First& first, const Second& second) const ->
   decltype(first > second) {
@@ -103,7 +103,7 @@ public:
 
 template <int n>
 class Get {
-public:
+ public:
   template <class Value>
   auto operator()(Value&& value) const ->
   decltype(std::get<n>(std::forward<Value>(value))) {
@@ -188,7 +188,7 @@ class Field {
 };
 
 class Move {
-public:
+ public:
   template <class Value>
   auto operator()(Value&& value) const ->
   decltype(std::move(std::forward<Value>(value))) {
@@ -235,6 +235,15 @@ class To {
   template <class Value>
   Dest operator()(Value&& value) const {
     return ::folly::to<Dest>(std::forward<Value>(value));
+  }
+};
+
+template <class Dest>
+class TryTo {
+ public:
+  template <class Value>
+  Expected<Dest, ConversionCode> operator()(Value&& value) const {
+    return ::folly::tryTo<Dest>(std::forward<Value>(value));
   }
 };
 
@@ -330,6 +339,9 @@ class Sample;
 
 class Skip;
 
+template <class Visitor>
+class Visit;
+
 template <class Selector, class Comparer = Less>
 class Order;
 
@@ -353,6 +365,8 @@ template <bool forever>
 class Cycle;
 
 class Batch;
+
+class Window;
 
 class Dereference;
 
@@ -402,7 +416,7 @@ class UnwrapOr;
 
 class Unwrap;
 
-}
+} // namespace detail
 
 /**
  * Polymorphic wrapper
@@ -498,9 +512,8 @@ Yield generator(Source&& source) {
  *
  *  auto gen = GENERATOR(int) { yield(1); yield(2); };
  */
-#define GENERATOR(TYPE)                            \
-  ::folly::gen::detail::GeneratorBuilder<TYPE>() + \
-   [=](const std::function<void(TYPE)>& yield)
+#define GENERATOR(TYPE) \
+  ::folly::gen::detail::GeneratorBuilder<TYPE>() + [=](auto&& yield)
 
 /*
  * empty() - for producing empty sequences.
@@ -634,9 +647,21 @@ Filter filter(Predicate pred = Predicate()) {
   return Filter(std::move(pred));
 }
 
-template <class Predicate, class Until = detail::Until<Predicate>>
+template <class Visitor = Ignore, class Visit = detail::Visit<Visitor>>
+Visit visit(Visitor visitor = Visitor()) {
+  return Visit(std::move(visitor));
+}
+
+template <class Predicate = Identity, class Until = detail::Until<Predicate>>
 Until until(Predicate pred = Predicate()) {
   return Until(std::move(pred));
+}
+
+template <
+    class Predicate = Identity,
+    class TakeWhile = detail::Until<Negate<Predicate>>>
+TakeWhile takeWhile(Predicate pred = Predicate()) {
+  return TakeWhile(Negate<Predicate>(std::move(pred)));
 }
 
 template <
@@ -680,9 +705,15 @@ Cast eachAs() {
 }
 
 // call folly::to on each value
-template <class Dest, class To = detail::Map<To<Dest>>>
-To eachTo() {
-  return To();
+template <class Dest, class EachTo = detail::Map<To<Dest>>>
+EachTo eachTo() {
+  return EachTo();
+}
+
+// call folly::tryTo on each value
+template <class Dest, class EachTryTo = detail::Map<TryTo<Dest>>>
+EachTryTo eachTryTo() {
+  return EachTryTo();
 }
 
 template <class Value>
@@ -742,7 +773,6 @@ Composed any(Predicate pred = Predicate()) {
  *
  *   from(source) | all(pred) == from(source) | filter(negate(pred)) | isEmpty
  */
-
 template <
     class Predicate = Identity,
     class Filter = detail::Filter<Negate<Predicate>>,
@@ -814,7 +844,8 @@ template <
 UnwrapOr unwrapOr(Fallback&& fallback) {
   return UnwrapOr(std::forward<Fallback>(fallback));
 }
-} // gen
-} // folly
+
+} // namespace gen
+} // namespace folly
 
 #include <folly/gen/Base-inl.h>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,9 +26,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <climits>
 #include <condition_variable>
-#include <limits.h>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -36,12 +37,12 @@
 
 #include <glog/logging.h>
 
-#include <folly/Baton.h>
 #include <folly/Memory.h>
-#include <folly/ThreadId.h>
 #include <folly/experimental/io/FsUtil.h>
 #include <folly/portability/GTest.h>
 #include <folly/portability/Unistd.h>
+#include <folly/synchronization/Baton.h>
+#include <folly/system/ThreadId.h>
 
 using namespace folly;
 
@@ -58,6 +59,23 @@ struct Widget {
   }
 };
 int Widget::totalVal_ = 0;
+
+struct MultiWidget {
+  int val_{0};
+  MultiWidget() = default;
+  ~MultiWidget() {
+    // force a reallocation in the destructor by
+    // allocating more than elementsCapacity
+
+    using TL = ThreadLocal<size_t>;
+    using TLMeta = threadlocal_detail::static_meta_of<TL>::type;
+    auto const numElements = TLMeta::instance().elementsCapacity() + 1;
+    std::vector<ThreadLocal<size_t>> elems(numElements);
+    for (auto& t : elems) {
+      *t += 1;
+    }
+  }
+};
 
 TEST(ThreadLocalPtr, BasicDestructor) {
   Widget::totalVal_ = 0;
@@ -224,6 +242,12 @@ TEST(ThreadLocal, BasicDestructor) {
   EXPECT_EQ(10, Widget::totalVal_);
 }
 
+// this should force a realloc of the ElementWrapper array
+TEST(ThreadLocal, ReallocDestructor) {
+  ThreadLocal<MultiWidget> w;
+  std::thread([&w]() { w->val_ += 10; }).join();
+}
+
 TEST(ThreadLocal, SimpleRepeatDestructor) {
   Widget::totalVal_ = 0;
   {
@@ -269,7 +293,7 @@ TEST(ThreadLocal, InterleavedDestructors) {
     {
       std::lock_guard<std::mutex> g(lock);
       thIterPrev = thIter;
-      w.reset(new ThreadLocal<Widget>());
+      w = std::make_unique<ThreadLocal<Widget>>();
       ++wVersion;
     }
     while (true) {
@@ -307,14 +331,23 @@ class SimpleThreadCachedInt {
 };
 
 TEST(ThreadLocalPtr, AccessAllThreadsCounter) {
-  const int kNumThreads = 10;
-  SimpleThreadCachedInt stci;
+  const int kNumThreads = 256;
+  SimpleThreadCachedInt stci[kNumThreads + 1];
   std::atomic<bool> run(true);
-  std::atomic<int> totalAtomic(0);
+  std::atomic<int> totalAtomic;
+  ;
   std::vector<std::thread> threads;
+  // thread i will increment all the thread locals
+  // in the range 0..i
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&]() {
-      stci.add(1);
+    threads.push_back(std::thread([i, // i needs to be captured by value
+                                   &stci,
+                                   &run,
+                                   &totalAtomic]() {
+      for (int j = 0; j <= i; j++) {
+        stci[j].add(1);
+      }
+
       totalAtomic.fetch_add(1);
       while (run.load()) {
         usleep(100);
@@ -322,7 +355,9 @@ TEST(ThreadLocalPtr, AccessAllThreadsCounter) {
     }));
   }
   while (totalAtomic.load() != kNumThreads) { usleep(100); }
-  EXPECT_EQ(kNumThreads, stci.read());
+  for (int i = 0; i <= kNumThreads; i++) {
+    EXPECT_EQ(kNumThreads - i, stci[i].read());
+  }
   run.store(false);
   for (auto& t : threads) {
     t.join();
@@ -345,7 +380,7 @@ struct Tag {};
 struct Foo {
   folly::ThreadLocal<int, Tag> tl;
 };
-}  // namespace
+} // namespace
 
 TEST(ThreadLocal, Movable1) {
   Foo a;
@@ -415,7 +450,7 @@ class FillObject {
   uint64_t data_[kFillObjectSize];
 };
 
-}  // namespace
+} // namespace
 
 TEST(ThreadLocal, Stress) {
   static constexpr size_t numFillObjects = 250;
@@ -473,7 +508,7 @@ int totalValue() {
   return value;
 }
 
-}  // namespace
+} // namespace
 
 #ifdef FOLLY_HAVE_PTHREAD_ATFORK
 TEST(ThreadLocal, Fork) {
@@ -530,7 +565,7 @@ TEST(ThreadLocal, Fork) {
     EXPECT_TRUE(WIFEXITED(status));
     EXPECT_EQ(0, WEXITSTATUS(status));
   } else {
-    EXPECT_TRUE(false) << "fork failed";
+    ADD_FAILURE() << "fork failed";
   }
 
   EXPECT_EQ(2, totalValue());
@@ -573,21 +608,29 @@ TEST(ThreadLocal, Fork2) {
     EXPECT_TRUE(WIFEXITED(status));
     EXPECT_EQ(0, WEXITSTATUS(status));
   } else {
-    EXPECT_TRUE(false) << "fork failed";
+    ADD_FAILURE() << "fork failed";
   }
 }
 
-// Elide this test when using any sanitizer. Otherwise, the dlopen'ed code
-// would end up running without e.g., ASAN-initialized data structures and
-// failing right away.
-#if !defined FOLLY_SANITIZE_ADDRESS && !defined UNDEFINED_SANITIZER && \
-    !defined FOLLY_SANITIZE_THREAD
+// Disable the SharedLibrary test when using any sanitizer. Otherwise, the
+// dlopen'ed code would end up running without e.g., ASAN-initialized data
+// structures and failing right away.
+//
+// We also cannot run this test unless folly was compiled with PIC support,
+// since we cannot build thread_local_test_lib.so without PIC.
+#if defined FOLLY_SANITIZE_ADDRESS || defined FOLLY_SANITIZE_THREAD || \
+    !defined FOLLY_SUPPORT_SHARED_LIBRARY
+#define SHARED_LIBRARY_TEST_NAME DISABLED_SharedLibrary
+#else
+#define SHARED_LIBRARY_TEST_NAME SharedLibrary
+#endif
 
-TEST(ThreadLocal, SharedLibrary) {
+TEST(ThreadLocal, SHARED_LIBRARY_TEST_NAME) {
   auto exe = fs::executable_path();
   auto lib = exe.parent_path() / "thread_local_test_lib.so";
   auto handle = dlopen(lib.string().c_str(), RTLD_LAZY);
-  EXPECT_NE(nullptr, handle);
+  ASSERT_NE(nullptr, handle)
+      << "unable to load " << lib.string() << ": " << dlerror();
 
   typedef void (*useA_t)();
   dlerror();
@@ -595,6 +638,7 @@ TEST(ThreadLocal, SharedLibrary) {
 
   const char *dlsym_error = dlerror();
   EXPECT_EQ(nullptr, dlsym_error);
+  ASSERT_NE(nullptr, useA);
 
   useA();
 
@@ -625,14 +669,14 @@ TEST(ThreadLocal, SharedLibrary) {
 }
 
 #endif
-#endif
 
 namespace folly { namespace threadlocal_detail {
 struct PthreadKeyUnregisterTester {
   PthreadKeyUnregister p;
   constexpr PthreadKeyUnregisterTester() = default;
 };
-}}
+} // namespace threadlocal_detail
+} // namespace folly
 
 TEST(ThreadLocal, UnregisterClassHasConstExprCtor) {
   folly::threadlocal_detail::PthreadKeyUnregisterTester x;

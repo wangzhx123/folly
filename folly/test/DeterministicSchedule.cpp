@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -183,6 +183,22 @@ void DeterministicSchedule::clearAuxChk() {
   aux_chk = nullptr;
 }
 
+void DeterministicSchedule::reschedule(sem_t* sem) {
+  auto sched = tls_sched;
+  if (sched) {
+    sched->sems_.push_back(sem);
+  }
+}
+
+sem_t* DeterministicSchedule::descheduleCurrentThread() {
+  auto sched = tls_sched;
+  if (sched) {
+    sched->sems_.erase(
+        std::find(sched->sems_.begin(), sched->sems_.end(), tls_sem));
+  }
+  return tls_sem;
+}
+
 sem_t* DeterministicSchedule::beforeThreadCreate() {
   sem_t* s = new sem_t;
   sem_init(s, 0, 0);
@@ -210,6 +226,11 @@ void DeterministicSchedule::afterThreadCreate(sem_t* sem) {
 void DeterministicSchedule::beforeThreadExit() {
   assert(tls_sched == this);
   beforeSharedAccess();
+  auto parent = joins_.find(std::this_thread::get_id());
+  if (parent != joins_.end()) {
+    reschedule(parent->second);
+    joins_.erase(parent);
+  }
   sems_.erase(std::find(sems_.begin(), sems_.end(), tls_sem));
   active_.erase(std::this_thread::get_id());
   if (sems_.size() > 0) {
@@ -226,16 +247,19 @@ void DeterministicSchedule::beforeThreadExit() {
 void DeterministicSchedule::join(std::thread& child) {
   auto sched = tls_sched;
   if (sched) {
-    bool done = false;
-    while (!done) {
-      beforeSharedAccess();
-      done = !sched->active_.count(child.get_id());
-      if (done) {
-        FOLLY_TEST_DSCHED_VLOG("joined " << std::hex << child.get_id());
-      }
+    beforeSharedAccess();
+    assert(sched->joins_.count(child.get_id()) == 0);
+    if (sched->active_.count(child.get_id())) {
+      sem_t* sem = descheduleCurrentThread();
+      sched->joins_.insert({child.get_id(), sem});
       afterSharedAccess();
+      // Wait to be scheduled by exiting child thread
+      beforeSharedAccess();
+      assert(!sched->active_.count(child.get_id()));
     }
+    afterSharedAccess();
   }
+  FOLLY_TEST_DSCHED_VLOG("joined " << std::hex << child.get_id());
   child.join();
 }
 
@@ -277,8 +301,8 @@ void DeterministicSchedule::wait(sem_t* sem) {
     // we're not busy waiting because this is a deterministic schedule
   }
 }
-}
-}
+} // namespace test
+} // namespace folly
 
 namespace folly {
 namespace detail {
@@ -289,8 +313,8 @@ using namespace std::chrono;
 template <>
 FutexResult Futex<DeterministicAtomic>::futexWaitImpl(
     uint32_t expected,
-    time_point<system_clock>* absSystemTimeout,
-    time_point<steady_clock>* absSteadyTimeout,
+    system_clock::time_point const* absSystemTimeout,
+    steady_clock::time_point const* absSteadyTimeout,
     uint32_t waitMask) {
   bool hasTimeout = absSystemTimeout != nullptr || absSteadyTimeout != nullptr;
   bool awoken = false;
@@ -382,6 +406,7 @@ int Futex<DeterministicAtomic>::futexWake(int count, uint32_t wakeMask) {
   DeterministicSchedule::afterSharedAccess();
   return rv;
 }
+} // namespace detail
 
 template <>
 CacheLocality const& CacheLocality::system<test::DeterministicAtomic>() {
@@ -391,7 +416,6 @@ CacheLocality const& CacheLocality::system<test::DeterministicAtomic>() {
 
 template <>
 Getcpu::Func AccessSpreader<test::DeterministicAtomic>::pickGetcpuFunc() {
-  return &DeterministicSchedule::getcpu;
+  return &detail::DeterministicSchedule::getcpu;
 }
-}
-}
+} // namespace folly

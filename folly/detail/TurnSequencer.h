@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ namespace detail {
 /// cutoffs for different operations (read versus write, for example).
 /// To avoid contention, the spin cutoff is only updated when requested
 /// by the caller.
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 struct TurnSequencer {
   explicit TurnSequencer(const uint32_t firstTurn = 0) noexcept
       : state_(encode(firstTurn << kTurnShift, 0))

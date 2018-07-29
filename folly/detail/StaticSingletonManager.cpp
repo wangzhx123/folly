@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,5 +23,5 @@ StaticSingletonManager& StaticSingletonManager::instance() {
   static StaticSingletonManager* instance = new StaticSingletonManager();
   return *instance;
 }
-}
-}
+} // namespace detail
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -104,9 +104,9 @@ using IdivResultType = typename std::enable_if<
         !std::is_same<N, bool>::value &&
         !std::is_same<D, bool>::value,
     decltype(N{1} / D{1})>::type;
-}
+} // namespace detail
 
-#if defined(__arm__) && !FOLLY_A64
+#if defined(__arm__) && !FOLLY_AARCH64
 constexpr auto kIntegerDivisionGivesRemainder = false;
 #else
 constexpr auto kIntegerDivisionGivesRemainder = true;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-#include <glog/logging.h>
-#include <iostream>
 #include <array>
-#include <vector>
 #include <future>
+#include <iostream>
+#include <vector>
+
+#include <glog/logging.h>
 
 #include <folly/gen/Base.h>
 #include <folly/gen/Parallel.h>
@@ -35,9 +36,6 @@ using std::vector;
 
 constexpr int kFib = 28;  // unit of work
 size_t fib(int n) { return n <= 1 ? 1 : fib(n - 1) + fib(n - 2); }
-
-static auto add = [](int a, int b) { return a + b; };
-static auto mod7 = [](int i) { return i % 7; };
 
 static auto isPrimeSlow = [](int n) {
   if (n < 2) {
@@ -83,15 +81,6 @@ static auto sleepyWork = [](int i) {
 
 static auto sleepAndWork = [](int i) {
   return factorsSlow(i) + sleepyWork(i);
-};
-
-std::mutex block;
-static auto workAndBlock = [](int i) {
-  int r = factorsSlow(i);
-  {
-    std::lock_guard<std::mutex> lock(block);
-    return sleepyWork(i) + r;
-  }
 };
 
 auto start = 1 << 20;

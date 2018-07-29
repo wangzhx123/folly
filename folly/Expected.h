@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,9 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 /**
- * Like folly::Optional, but can store a value *or* and error.
+ * Like folly::Optional, but can store a value *or* an error.
  *
  * @author Eric Niebler (eniebler@fb.com)
  */
@@ -29,11 +28,17 @@
 #include <type_traits>
 #include <utility>
 
+#include <folly/CPortability.h>
+#include <folly/CppAttributes.h>
 #include <folly/Likely.h>
+#include <folly/Optional.h>
 #include <folly/Portability.h>
 #include <folly/Preprocessor.h>
-#include <folly/Traits.h> // for construct_in_place_t
+#include <folly/Traits.h>
 #include <folly/Unit.h>
+#include <folly/Utility.h>
+#include <folly/lang/ColdClass.h>
+#include <folly/lang/Exception.h>
 
 #define FOLLY_EXPECTED_ID(X) FB_CONCATENATE(FB_CONCATENATE(Folly, X), __LINE__)
 
@@ -92,6 +97,10 @@ using ExpectedErrorType =
 
 // Details...
 namespace expected_detail {
+
+template <typename Value, typename Error>
+struct PromiseReturn;
+
 #ifdef _MSC_VER
 // MSVC 2015 can't handle the StrictConjunction, so we have
 // to use std::conjunction instead.
@@ -159,7 +168,7 @@ enum class StorageType { ePODStruct, ePODUnion, eUnion };
 
 template <class Value, class Error>
 constexpr StorageType getStorageType() {
-  return StrictAllOf<IsTriviallyCopyable, Value, Error>::value
+  return StrictAllOf<is_trivially_copyable, Value, Error>::value
       ? (sizeof(std::pair<Value, Error>) <= sizeof(void * [2]) &&
                  StrictAllOf<std::is_trivial, Value, Error>::value
              ? StorageType::ePODStruct
@@ -459,8 +468,9 @@ struct ExpectedStorage<Value, Error, StorageType::eUnion>
   }
   template <class Other>
   void assign(Other&& that) {
-    if (isSelfAssign(&that))
+    if (isSelfAssign(&that)) {
       return;
+    }
     switch (that.which_) {
       case Which::eValue:
         this->assignValue(static_cast<Other&&>(that).value());
@@ -589,13 +599,14 @@ struct ExpectedHelper {
       T::template return_<E>(
           (std::declval<Fn>()(std::declval<This>().value()), unit)),
       std::declval<Fns>()...)) {
-    if (LIKELY(ex.which_ == expected_detail::Which::eValue))
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return T::then_(
           T::template return_<E>(
               // Uses the comma operator defined above IFF the lambda
               // returns non-void.
               (static_cast<Fn&&>(fn)(static_cast<This&&>(ex).value()), unit)),
           static_cast<Fns&&>(fns)...);
+    }
     return makeUnexpected(static_cast<This&&>(ex).error());
   }
 
@@ -607,9 +618,10 @@ struct ExpectedHelper {
       class Err = decltype(std::declval<No>()(std::declval<This>().error()))
           FOLLY_REQUIRES_TRAILING(!std::is_void<Err>::value)>
   static Ret thenOrThrow_(This&& ex, Yes&& yes, No&& no) {
-    if (LIKELY(ex.which_ == expected_detail::Which::eValue))
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return Ret(static_cast<Yes&&>(yes)(static_cast<This&&>(ex).value()));
-    throw static_cast<No&&>(no)(static_cast<This&&>(ex).error());
+    }
+    throw_exception(static_cast<No&&>(no)(static_cast<This&&>(ex).error()));
   }
 
   template <
@@ -620,15 +632,16 @@ struct ExpectedHelper {
       class Err = decltype(std::declval<No>()(std::declval<This&>().error()))
           FOLLY_REQUIRES_TRAILING(std::is_void<Err>::value)>
   static Ret thenOrThrow_(This&& ex, Yes&& yes, No&& no) {
-    if (LIKELY(ex.which_ == expected_detail::Which::eValue))
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return Ret(static_cast<Yes&&>(yes)(static_cast<This&&>(ex).value()));
+    }
     static_cast<No&&>(no)(ex.error());
-    throw typename Unexpected<ExpectedErrorType<This>>::MakeBadExpectedAccess()(
-        static_cast<This&&>(ex).error());
+    typename Unexpected<ExpectedErrorType<This>>::MakeBadExpectedAccess bad;
+    throw_exception(bad(static_cast<This&&>(ex).error()));
   }
   FOLLY_POP_WARNING
 };
-}
+} // namespace expected_detail_ExpectedHelper
 /* using override */ using expected_detail_ExpectedHelper::ExpectedHelper;
 
 struct UnexpectedTag {};
@@ -646,17 +659,21 @@ inline expected_detail::UnexpectedTag unexpected(
 /**
  * An exception type thrown by Expected on catastrophic logic errors.
  */
-class BadExpectedAccess : public std::logic_error {
+class FOLLY_EXPORT BadExpectedAccess : public std::logic_error {
  public:
   BadExpectedAccess() : std::logic_error("bad Expected access") {}
 };
+
+namespace expected_detail {
+
+} // namespace expected_detail
 
 /**
  * Unexpected - a helper type used to disambiguate the construction of
  * Expected objects in the error state.
  */
 template <class Error>
-class Unexpected final {
+class Unexpected final : ColdClass {
   template <class E>
   friend class Unexpected;
   template <class V, class E>
@@ -669,7 +686,7 @@ class Unexpected final {
    * when the user tries to access the nested value but the Expected object is
    * actually storing an error code.
    */
-  class BadExpectedAccess : public folly::BadExpectedAccess {
+  class FOLLY_EXPORT BadExpectedAccess : public folly::BadExpectedAccess {
    public:
     explicit BadExpectedAccess(Error err)
         : folly::BadExpectedAccess{}, error_(std::move(err)) {}
@@ -886,8 +903,6 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
  public:
   using value_type = Value;
   using error_type = Error;
-  using IsTriviallyCopyable = typename expected_detail::
-      StrictAllOf<IsTriviallyCopyable, Value, Error>::type;
 
   template <class U>
   using rebind = Expected<U, Error>;
@@ -1029,6 +1044,12 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
     return *this;
   }
 
+  // Used only when an Expected is used with coroutines on MSVC
+  /* implicit */ Expected(const expected_detail::PromiseReturn<Value, Error>& p)
+      : Expected{} {
+    p.promise_->value_ = this;
+  }
+
   template <class... Ts FOLLY_REQUIRES_TRAILING(
       std::is_constructible<Value, Ts&&...>::value)>
   void emplace(Ts&&... ts) {
@@ -1040,8 +1061,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
    */
   void swap(Expected& that) noexcept(
       expected_detail::StrictAllOf<IsNothrowSwappable, Value, Error>::value) {
-    if (this->uninitializedByException() || that.uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException() || that.uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     using std::swap;
     if (*this) {
       if (that) {
@@ -1081,11 +1103,11 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
    * Accessors
    */
   constexpr bool hasValue() const noexcept {
-    return expected_detail::Which::eValue == this->which_;
+    return LIKELY(expected_detail::Which::eValue == this->which_);
   }
 
   constexpr bool hasError() const noexcept {
-    return expected_detail::Which::eError == this->which_;
+    return UNLIKELY(expected_detail::Which::eError == this->which_);
   }
 
   using Base::uninitializedByException;
@@ -1179,8 +1201,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
       expected_detail::ExpectedHelper::then_(
           std::declval<const Base&>(),
           std::declval<Fns>()...)) {
-    if (this->uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     return expected_detail::ExpectedHelper::then_(
         base(), static_cast<Fns&&>(fns)...);
   }
@@ -1189,8 +1212,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   auto then(Fns&&... fns) & -> decltype(expected_detail::ExpectedHelper::then_(
       std::declval<Base&>(),
       std::declval<Fns>()...)) {
-    if (this->uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     return expected_detail::ExpectedHelper::then_(
         base(), static_cast<Fns&&>(fns)...);
   }
@@ -1199,8 +1223,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   auto then(Fns&&... fns) && -> decltype(expected_detail::ExpectedHelper::then_(
       std::declval<Base&&>(),
       std::declval<Fns>()...)) {
-    if (this->uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     return expected_detail::ExpectedHelper::then_(
         std::move(base()), static_cast<Fns&&>(fns)...);
   }
@@ -1212,8 +1237,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   auto thenOrThrow(Yes&& yes, No&& no = No{}) const& -> decltype(
       std::declval<Yes>()(std::declval<const Value&>())) {
     using Ret = decltype(std::declval<Yes>()(std::declval<const Value&>()));
-    if (this->uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     return Ret(expected_detail::ExpectedHelper::thenOrThrow_(
         base(), static_cast<Yes&&>(yes), static_cast<No&&>(no)));
   }
@@ -1222,8 +1248,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   auto thenOrThrow(Yes&& yes, No&& no = No{}) & -> decltype(
       std::declval<Yes>()(std::declval<Value&>())) {
     using Ret = decltype(std::declval<Yes>()(std::declval<Value&>()));
-    if (this->uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     return Ret(expected_detail::ExpectedHelper::thenOrThrow_(
         base(), static_cast<Yes&&>(yes), static_cast<No&&>(no)));
   }
@@ -1232,8 +1259,9 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   auto thenOrThrow(Yes&& yes, No&& no = No{}) && -> decltype(
       std::declval<Yes>()(std::declval<Value&&>())) {
     using Ret = decltype(std::declval<Yes>()(std::declval<Value&&>()));
-    if (this->uninitializedByException())
-      throw BadExpectedAccess();
+    if (this->uninitializedByException()) {
+      throw_exception<BadExpectedAccess>();
+    }
     return Ret(expected_detail::ExpectedHelper::thenOrThrow_(
         std::move(base()), static_cast<Yes&&>(yes), static_cast<No&&>(no)));
   }
@@ -1241,15 +1269,17 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
  private:
   void requireValue() const {
     if (UNLIKELY(!hasValue())) {
-      if (LIKELY(hasError()))
-        throw typename Unexpected<Error>::BadExpectedAccess(this->error_);
-      throw BadExpectedAccess();
+      if (LIKELY(hasError())) {
+        using Err = typename Unexpected<Error>::BadExpectedAccess;
+        throw_exception<Err>(this->error_);
+      }
+      throw_exception<BadExpectedAccess>();
     }
   }
 
   void requireError() const {
     if (UNLIKELY(!hasError())) {
-      throw BadExpectedAccess();
+      throw_exception<BadExpectedAccess>();
     }
   }
 
@@ -1263,13 +1293,15 @@ inline typename std::enable_if<IsEqualityComparable<Value>::value, bool>::type
 operator==(
     const Expected<Value, Error>& lhs,
     const Expected<Value, Error>& rhs) {
-  if (UNLIKELY(lhs.which_ != rhs.which_))
-    return UNLIKELY(lhs.uninitializedByException()) ? false
-                                                    : throw BadExpectedAccess();
-  if (UNLIKELY(lhs.uninitializedByException()))
-    throw BadExpectedAccess();
-  if (UNLIKELY(lhs.hasError()))
+  if (UNLIKELY(lhs.uninitializedByException())) {
+    throw_exception<BadExpectedAccess>();
+  }
+  if (UNLIKELY(lhs.which_ != rhs.which_)) {
+    return false;
+  }
+  if (UNLIKELY(lhs.hasError())) {
     return true; // All error states are considered equal
+  }
   return lhs.value_ == rhs.value_;
 }
 
@@ -1288,12 +1320,15 @@ operator<(
     const Expected<Value, Error>& lhs,
     const Expected<Value, Error>& rhs) {
   if (UNLIKELY(
-          lhs.uninitializedByException() || rhs.uninitializedByException()))
-    throw BadExpectedAccess();
-  if (UNLIKELY(lhs.hasError()))
+          lhs.uninitializedByException() || rhs.uninitializedByException())) {
+    throw_exception<BadExpectedAccess>();
+  }
+  if (UNLIKELY(lhs.hasError())) {
     return !rhs.hasError();
-  if (UNLIKELY(rhs.hasError()))
+  }
+  if (UNLIKELY(rhs.hasError())) {
     return false;
+  }
   return lhs.value_ < rhs.value_;
 }
 
@@ -1327,8 +1362,8 @@ inline bool operator>=(
 /**
  * swap Expected values
  */
-template <class Error, class Value>
-void swap(Expected<Error, Value>& lhs, Expected<Value, Error>& rhs) noexcept(
+template <class Value, class Error>
+void swap(Expected<Value, Error>& lhs, Expected<Value, Error>& rhs) noexcept(
     expected_detail::StrictAllOf<IsNothrowSwappable, Value, Error>::value) {
   lhs.swap(rhs);
 }
@@ -1394,3 +1429,99 @@ bool operator>(const Value& other, const Expected<Value, Error>&) = delete;
 
 #undef FOLLY_REQUIRES
 #undef FOLLY_REQUIRES_TRAILING
+
+// Enable the use of folly::Expected with `co_await`
+// Inspired by https://github.com/toby-allsopp/coroutine_monad
+#if FOLLY_HAS_COROUTINES
+#include <experimental/coroutine>
+
+namespace folly {
+namespace expected_detail {
+template <typename Value, typename Error>
+struct Promise;
+
+template <typename Value, typename Error>
+struct PromiseReturn {
+  Optional<Expected<Value, Error>> storage_;
+  Promise<Value, Error>* promise_;
+  /* implicit */ PromiseReturn(Promise<Value, Error>& promise) noexcept
+      : promise_(&promise) {
+    promise_->value_ = &storage_;
+  }
+  PromiseReturn(PromiseReturn&& that) noexcept
+      : PromiseReturn{*that.promise_} {}
+  ~PromiseReturn() {}
+  /* implicit */ operator Expected<Value, Error>() & {
+    return std::move(*storage_);
+  }
+};
+
+template <typename Value, typename Error>
+struct Promise {
+  Optional<Expected<Value, Error>>* value_ = nullptr;
+  Promise() = default;
+  Promise(Promise const&) = delete;
+  // This should work regardless of whether the compiler generates:
+  //    folly::Expected<Value, Error> retobj{ p.get_return_object(); } // MSVC
+  // or:
+  //    auto retobj = p.get_return_object(); // clang
+  PromiseReturn<Value, Error> get_return_object() noexcept {
+    return *this;
+  }
+  std::experimental::suspend_never initial_suspend() const noexcept {
+    return {};
+  }
+  std::experimental::suspend_never final_suspend() const {
+    return {};
+  }
+  template <typename U>
+  void return_value(U&& u) {
+    value_->emplace(static_cast<U&&>(u));
+  }
+  void unhandled_exception() {
+    // Technically, throwing from unhandled_exception is underspecified:
+    // https://github.com/GorNishanov/CoroutineWording/issues/17
+    throw;
+  }
+};
+
+template <typename Value, typename Error>
+struct Awaitable {
+  Expected<Value, Error> o_;
+
+  explicit Awaitable(Expected<Value, Error> o) : o_(std::move(o)) {}
+
+  bool await_ready() const noexcept {
+    return o_.hasValue();
+  }
+  Value await_resume() {
+    return std::move(o_.value());
+  }
+
+  // Explicitly only allow suspension into a Promise
+  template <typename U>
+  void await_suspend(std::experimental::coroutine_handle<Promise<U, Error>> h) {
+    *h.promise().value_ = makeUnexpected(std::move(o_.error()));
+    // Abort the rest of the coroutine. resume() is not going to be called
+    h.destroy();
+  }
+};
+} // namespace expected_detail
+
+template <typename Value, typename Error>
+expected_detail::Awaitable<Value, Error>
+/* implicit */ operator co_await(Expected<Value, Error> o) {
+  return expected_detail::Awaitable<Value, Error>{std::move(o)};
+}
+} // namespace folly
+
+// This makes folly::Expected<Value> useable as a coroutine return type...
+namespace std {
+namespace experimental {
+template <typename Value, typename Error, typename... Args>
+struct coroutine_traits<folly::Expected<Value, Error>, Args...> {
+  using promise_type = folly::expected_detail::Promise<Value, Error>;
+};
+} // namespace experimental
+} // namespace std
+#endif // FOLLY_HAS_COROUTINES

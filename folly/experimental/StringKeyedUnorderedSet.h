@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,9 +24,9 @@
 #include <unordered_set>
 #include <utility>
 
-#include <folly/Hash.h>
 #include <folly/Range.h>
 #include <folly/experimental/StringKeyedCommon.h>
+#include <folly/hash/Hash.h>
 
 namespace folly {
 
@@ -45,7 +45,7 @@ class BasicStringKeyedUnorderedSet
     : private std::unordered_set<StringPiece, Hasher, Eq, Alloc> {
   using Base = std::unordered_set<StringPiece, Hasher, Eq, Alloc>;
 
-public:
+ public:
   typedef typename Base::key_type key_type;
   typedef typename Base::value_type value_type;
   typedef typename Base::hasher hasher;
@@ -230,4 +230,4 @@ public:
 
 typedef BasicStringKeyedUnorderedSet<> StringKeyedUnorderedSet;
 
-} // folly
+} // namespace folly

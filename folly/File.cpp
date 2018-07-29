@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -138,7 +138,9 @@ void File::doLock(int op) {
 bool File::doTryLock(int op) {
   int r = flockNoInt(fd_, op | LOCK_NB);
   // flock returns EWOULDBLOCK if already locked
-  if (r == -1 && errno == EWOULDBLOCK) return false;
+  if (r == -1 && errno == EWOULDBLOCK) {
+    return false;
+  }
   checkUnixError(r, "flock() failed (try_lock)");
   return true;
 }
@@ -148,4 +150,4 @@ void File::unlock() {
 }
 void File::unlock_shared() { unlock(); }
 
-}  // namespace folly
+} // namespace folly

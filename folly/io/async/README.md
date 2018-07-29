@@ -17,7 +17,6 @@ EventBase base;
 auto thread = std::thread([&](){
   base.loopForever();
 });
-
 ```
 
 EventBase has built-in support for message passing between threads.
@@ -216,7 +215,7 @@ multiple timeouts using a single fd.
 
 #### HHWheelTimer
 
-Implementation of a [hashed hierarcical wheel
+Implementation of a [hashed hierarchical wheel
 timer](http://www.cs.columbia.edu/~nahum/w6998/papers/sosp87-timing-wheels.pdf).
 Any timeout time can be used, with O(1) insertion, deletion, and
 callback time.  The wheel itself takes up some amount of space, and
@@ -341,7 +340,7 @@ an explicit pool of EventBases.
 ### SSLContext
 
 SSL helper routines to load / verify certs.  Used with
-AsyncSSL[Server]Socket.
+AsyncSSLSocket.
 
 ## Generic Multithreading Advice
 

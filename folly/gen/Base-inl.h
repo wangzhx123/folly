@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,11 @@
 #endif
 
 #include <folly/Portability.h>
+#include <folly/functional/Invoke.h>
 
 // Ignore shadowing warnings within this file, so includers can use -Wshadow.
 FOLLY_PUSH_WARNING
-FOLLY_GCC_DISABLE_WARNING("-Wshadow")
+FOLLY_GNU_DISABLE_WARNING("-Wshadow")
 
 namespace folly {
 namespace gen {
@@ -470,7 +471,7 @@ class SingleCopy : public GenImpl<const Value&, SingleCopy<Value>> {
  *
  * This type is usually used through the 'map' or 'mapped' helper function:
  *
- *   auto squares = seq(1, 10) | map(square) | asVector;
+ *   auto squares = seq(1, 10) | map(square) | as<std::vector>();
  */
 template <class Predicate>
 class Map : public Operator<Map<Predicate>> {
@@ -484,8 +485,8 @@ class Map : public Operator<Map<Predicate>> {
   template <
       class Value,
       class Source,
-      class Result = typename ArgumentReference<
-          typename std::result_of<Predicate(Value)>::type>::type>
+      class Result =
+          typename ArgumentReference<invoke_result_t<Predicate, Value>>::type>
   class Generator : public GenImpl<Result, Generator<Value, Source, Result>> {
     Source source_;
     Predicate pred_;
@@ -597,7 +598,7 @@ class Filter : public Operator<Filter<Predicate>> {
  *
  *   auto best = from(sortedItems)
  *             | until([](Item& item) { return item.score > 100; })
- *             | asVector;
+ *             | as<std::vector>();
  */
 template <class Predicate>
 class Until : public Operator<Until<Predicate>> {
@@ -700,6 +701,65 @@ class Take : public Operator<Take> {
   template <class Source, class Value, class Gen = Generator<Value, Source>>
   Gen compose(const GenImpl<Value, Source>& source) const {
     return Gen(source.self(), count_);
+  }
+};
+
+/**
+ * Visit - For calling a function on each item before passing it down the
+ * pipeline.
+ *
+ * This type is usually used through the 'visit' helper function:
+ *
+ *   auto printedValues = seq(1) | visit(debugPrint);
+ *   // nothing printed yet
+ *   auto results = take(10) | as<std::vector>();
+ *   // results now populated, 10 values printed
+ */
+template <class Visitor>
+class Visit : public Operator<Visit<Visitor>> {
+  Visitor visitor_;
+
+ public:
+  Visit() = default;
+
+  explicit Visit(Visitor visitor) : visitor_(std::move(visitor)) {}
+
+  template <class Value, class Source>
+  class Generator : public GenImpl<Value, Generator<Value, Source>> {
+    Source source_;
+    Visitor visitor_;
+
+   public:
+    explicit Generator(Source source, const Visitor& visitor)
+        : source_(std::move(source)), visitor_(visitor) {}
+
+    template <class Body>
+    void foreach(Body&& body) const {
+      source_.foreach([&](Value value) {
+        visitor_(value); // not forwarding to avoid accidental moves
+        body(std::forward<Value>(value));
+      });
+    }
+
+    template <class Handler>
+    bool apply(Handler&& handler) const {
+      return source_.apply([&](Value value) {
+        visitor_(value); // not forwarding to avoid accidental moves
+        return handler(std::forward<Value>(value));
+      });
+    }
+
+    static constexpr bool infinite = Source::infinite;
+  };
+
+  template <class Source, class Value, class Gen = Generator<Value, Source>>
+  Gen compose(GenImpl<Value, Source>&& source) const {
+    return Gen(std::move(source.self()), visitor_);
+  }
+
+  template <class Source, class Value, class Gen = Generator<Value, Source>>
+  Gen compose(const GenImpl<Value, Source>& source) const {
+    return Gen(source.self(), visitor_);
   }
 };
 
@@ -958,10 +1018,10 @@ class Order : public Operator<Order<Selector, Comparer>> {
       class Value,
       class Source,
       class StorageType = typename std::decay<Value>::type,
-      class Result = typename std::result_of<Selector(Value)>::type>
-  class Generator
-      : public GenImpl<StorageType&&,
-                       Generator<Value, Source, StorageType, Result>> {
+      class Result = invoke_result_t<Selector, Value>>
+  class Generator : public GenImpl<
+                        StorageType&&,
+                        Generator<Value, Source, StorageType, Result>> {
     static_assert(!Source::infinite, "Cannot sort infinite source!");
     Source source_;
     Selector selector_;
@@ -1060,7 +1120,7 @@ class GroupBy : public Operator<GroupBy<Selector>> {
       class Value,
       class Source,
       class ValueDecayed = typename std::decay<Value>::type,
-      class Key = typename std::result_of<Selector(Value)>::type,
+      class Key = invoke_result_t<Selector, Value>,
       class KeyDecayed = typename std::decay<Key>::type>
   class Generator
       : public GenImpl<
@@ -1168,7 +1228,7 @@ class Distinct : public Operator<Distinct<Selector>> {
     // of a value to the downstream operators.
     typedef const StorageType& ParamType;
 
-    typedef typename std::result_of<Selector(ParamType)>::type KeyType;
+    typedef invoke_result_t<Selector, ParamType> KeyType;
     typedef typename std::decay<KeyType>::type KeyStorageType;
 
    public:
@@ -1304,6 +1364,103 @@ class Batch : public Operator<Batch> {
   template <class Source, class Value, class Gen = Generator<Value, Source>>
   Gen compose(const GenImpl<Value, Source>& source) const {
     return Gen(source.self(), batchSize_);
+  }
+};
+
+/**
+ * Window - For overlapping the lifetimes of pipeline values, especially with
+ * Futures.
+ *
+ * This type is usually used through the 'window' helper function:
+ *
+ *   auto responses
+ *     = byLine(STDIN)
+ *     | map(makeRequestFuture)
+ *     | window(1000)
+ *     | map(waitFuture)
+ *     | as<vector>();
+ */
+class Window : public Operator<Window> {
+  size_t windowSize_;
+
+ public:
+  explicit Window(size_t windowSize) : windowSize_(windowSize) {
+    if (windowSize_ == 0) {
+      throw std::invalid_argument("Window size must be non-zero!");
+    }
+  }
+
+  template <
+      class Value,
+      class Source,
+      class StorageType = typename std::decay<Value>::type>
+  class Generator
+      : public GenImpl<StorageType&&, Generator<Value, Source, StorageType>> {
+    Source source_;
+    size_t windowSize_;
+
+   public:
+    explicit Generator(Source source, size_t windowSize)
+        : source_(std::move(source)), windowSize_(windowSize) {}
+
+    template <class Handler>
+    bool apply(Handler&& handler) const {
+      std::vector<StorageType> buffer;
+      buffer.reserve(windowSize_);
+      size_t readIndex = 0;
+      bool shouldContinue = source_.apply([&](Value value) -> bool {
+        if (buffer.size() < windowSize_) {
+          buffer.push_back(std::forward<Value>(value));
+        } else {
+          StorageType& entry = buffer[readIndex++];
+          if (readIndex == windowSize_) {
+            readIndex = 0;
+          }
+          if (!handler(std::move(entry))) {
+            return false;
+          }
+          entry = std::forward<Value>(value);
+        }
+        return true;
+      });
+      if (!shouldContinue) {
+        return false;
+      }
+      if (buffer.size() < windowSize_) {
+        for (StorageType& entry : buffer) {
+          if (!handler(std::move(entry))) {
+            return false;
+          }
+        }
+      } else {
+        for (size_t i = readIndex;;) {
+          StorageType& entry = buffer[i++];
+          if (!handler(std::move(entry))) {
+            return false;
+          }
+          if (i == windowSize_) {
+            i = 0;
+          }
+          if (i == readIndex) {
+            break;
+          }
+        }
+      }
+      return true;
+    }
+
+    // Taking n-tuples of an infinite source is still infinite
+    static constexpr bool infinite = Source::infinite;
+  };
+
+  template <class Source, class Value, class Gen = Generator<Value, Source>>
+  Gen compose(GenImpl<Value, Source>&& source) const {
+    return Gen(std::move(source.self()), windowSize_);
+  }
+
+  template <class Source, class Value, class Gen = Generator<Value, Source>>
+  Gen compose(const GenImpl<Value, Source>& source) const {
+    return Gen(source.self(), windowSize_);
   }
 };
 
@@ -1935,8 +2092,7 @@ class Min : public Operator<Min<Selector, Comparer>> {
       class Value,
       class Source,
       class StorageType = typename std::decay<Value>::type,
-      class Key = typename std::decay<
-          typename std::result_of<Selector(Value)>::type>::type>
+      class Key = typename std::decay<invoke_result_t<Selector, Value>>::type>
   Optional<StorageType> compose(const GenImpl<Value, Source>& source) const {
     static_assert(!Source::infinite,
                   "Calling min or max on an infinite source will cause "
@@ -2176,7 +2332,7 @@ const T& operator|(const Optional<T>& opt, const Unwrap&) {
   return opt.value();
 }
 
-} //::detail
+} // namespace detail
 
 /**
  * VirtualGen<T> - For wrapping template types in simple polymorphic wrapper.
@@ -2298,7 +2454,12 @@ inline detail::Skip skip(size_t count) { return detail::Skip(count); }
 inline detail::Batch batch(size_t batchSize) {
   return detail::Batch(batchSize);
 }
-} // gen
-} // folly
+
+inline detail::Window window(size_t windowSize) {
+  return detail::Window(windowSize);
+}
+
+} // namespace gen
+} // namespace folly
 
 FOLLY_POP_WARNING

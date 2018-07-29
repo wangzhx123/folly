@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -156,7 +156,8 @@ TEST(MPMCPipeline, MultiThreaded) {
   }
 }
 
-}}  // namespaces
+} // namespace test
+} // namespace folly
 
 int main(int argc, char *argv[]) {
   testing::InitGoogleTest(&argc, argv);

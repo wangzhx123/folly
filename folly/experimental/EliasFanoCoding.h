@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,14 +28,14 @@
 #include <limits>
 #include <type_traits>
 
-#include <folly/Assume.h>
-#include <folly/Bits.h>
 #include <folly/Likely.h>
 #include <folly/Portability.h>
 #include <folly/Range.h>
 #include <folly/experimental/CodingDetail.h>
 #include <folly/experimental/Instructions.h>
 #include <folly/experimental/Select64.h>
+#include <folly/lang/Assume.h>
+#include <folly/lang/Bits.h>
 #include <glog/logging.h>
 
 #if !FOLLY_X64
@@ -45,6 +45,8 @@
 namespace folly { namespace compression {
 
 static_assert(kIsLittleEndian, "EliasFanoCoding.h requires little endianness");
+
+constexpr size_t kCacheLineSize = 64;
 
 template <class Pointer>
 struct EliasFanoCompressedListBase {
@@ -86,10 +88,11 @@ struct EliasFanoCompressedListBase {
 typedef EliasFanoCompressedListBase<const uint8_t*> EliasFanoCompressedList;
 typedef EliasFanoCompressedListBase<uint8_t*> MutableEliasFanoCompressedList;
 
-template <class Value,
-          class SkipValue = size_t,
-          size_t kSkipQuantum = 0,     // 0 = disabled
-          size_t kForwardQuantum = 0>  // 0 = disabled
+template <
+    class Value,
+    class SkipValue = size_t,
+    size_t kSkipQuantum = 0, // 0 = disabled
+    size_t kForwardQuantum = 0> // 0 = disabled
 struct EliasFanoEncoderV2 {
   static_assert(std::is_integral<Value>::value &&
                     std::is_unsigned<Value>::value,
@@ -216,10 +219,11 @@ struct EliasFanoEncoderV2 {
   MutableCompressedList result_;
 };
 
-template <class Value,
-          class SkipValue,
-          size_t kSkipQuantum,
-          size_t kForwardQuantum>
+template <
+    class Value,
+    class SkipValue,
+    size_t kSkipQuantum,
+    size_t kForwardQuantum>
 struct EliasFanoEncoderV2<Value,
                           SkipValue,
                           kSkipQuantum,
@@ -360,6 +364,16 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
     return value_;
   }
 
+  ValueType previous() {
+    size_t inner;
+    block_t block;
+    getPreviousInfo(block, inner, outer_);
+    block_ = folly::loadUnaligned<block_t>(start_ + outer_);
+    block_ ^= block;
+    --position_;
+    return setValue(inner);
+  }
+
   ValueType next() {
     // Skip to the first non-zero block.
     while (block_ == 0) {
@@ -448,6 +462,38 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
     return value_;
   }
 
+  /**
+   * Prepare to skip to `value`. This is a constant-time operation that will
+   * prefetch memory required for a `skipTo(value)` call.
+   *
+   * @return position of reader
+   */
+  SizeType prepareSkipTo(ValueType v) const {
+    auto position = position_;
+
+    if (Encoder::skipQuantum > 0 && v >= value_ + Encoder::skipQuantum) {
+      auto outer = outer_;
+      const size_t steps = v / Encoder::skipQuantum;
+      const size_t dest = folly::loadUnaligned<SkipValueType>(
+          this->skipPointers_ + (steps - 1) * sizeof(SkipValueType));
+
+      position = dest - 1;
+      outer = (dest + Encoder::skipQuantum * steps) / 8;
+
+      // Prefetch up to the beginning of where we linear search. After that,
+      // hardware prefetching will outperform our own. In addition, this
+      // simplifies calculating what to prefetch as we don't have to calculate
+      // the entire destination address. Two cache lines are prefetched because
+      // this results in fewer cycles used (based on practical results) than
+      // one. However, three cache lines does not have any additional effect.
+      const auto addr = start_ + outer;
+      __builtin_prefetch(addr);
+      __builtin_prefetch(addr + kCacheLineSize);
+    }
+
+    return position;
+  }
+
   ValueType jump(size_t n) {
     if (Encoder::forwardQuantum == 0 || n <= Encoder::forwardQuantum) {
       reset();
@@ -468,21 +514,10 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
   }
 
   ValueType previousValue() const {
-    DCHECK_NE(position(), std::numeric_limits<SizeType>::max());
-    DCHECK_GT(position(), 0);
-
-    auto outer = outer_;
-    auto inner = size_t(value_) - 8 * outer_ + position_;
-    block_t block = folly::loadUnaligned<block_t>(start_ + outer);
-    block &= (block_t(1) << inner) - 1;
-
-    while (UNLIKELY(block == 0)) {
-      DCHECK_GT(outer, 0);
-      outer -= std::min<OuterType>(sizeof(block_t), outer);
-      block = folly::loadUnaligned<block_t>(start_ + outer);
-    }
-
-    inner = 8 * sizeof(block_t) - 1 - Instructions::clz(block);
+    block_t block;
+    size_t inner;
+    OuterType outer;
+    getPreviousInfo(block, inner, outer);
     return static_cast<ValueType>(8 * outer + inner - (position_ - 1));
   }
 
@@ -507,6 +542,22 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
   // so a type that can hold either sizes or values is sufficient.
   using OuterType = typename std::common_type<ValueType, SizeType>::type;
 
+  void getPreviousInfo(block_t& block, size_t& inner, OuterType& outer) const {
+    DCHECK_NE(position(), std::numeric_limits<SizeType>::max());
+    DCHECK_GT(position(), 0);
+
+    outer = outer_;
+    block = folly::loadUnaligned<block_t>(start_ + outer);
+    inner = size_t(value_) - 8 * outer_ + position_;
+    block &= (block_t(1) << inner) - 1;
+    while (UNLIKELY(block == 0)) {
+      DCHECK_GT(outer, 0);
+      outer -= std::min<OuterType>(sizeof(block_t), outer);
+      block = folly::loadUnaligned<block_t>(start_ + outer);
+    }
+    inner = 8 * sizeof(block_t) - 1 - Instructions::clz(block);
+  }
+
   const unsigned char* const start_;
   block_t block_;
   SizeType position_; // Index of current value (= #reads - 1).
@@ -514,7 +565,7 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
   ValueType value_;
 };
 
-}  // namespace detail
+} // namespace detail
 
 // If kUnchecked = true the caller must guarantee that all the
 // operations return valid elements, i.e., they would never return
@@ -555,6 +606,17 @@ class EliasFanoReader {
     value_ = kInvalidValue;
   }
 
+  bool previous() {
+    if (!kUnchecked && UNLIKELY(position() == 0)) {
+      reset();
+      return false;
+    }
+    upper_.previous();
+    value_ =
+        readLowerPart(upper_.position()) | (upper_.value() << numLowerBits_);
+    return true;
+  }
+
   bool next() {
     if (!kUnchecked && UNLIKELY(position() + 1 >= size_)) {
       return setDone();
@@ -570,8 +632,9 @@ class EliasFanoReader {
 
     if (kUnchecked || LIKELY(position() + n < size_)) {
       if (LIKELY(n < kLinearScanThreshold)) {
-        for (SizeType i = 0; i < n; ++i)
+        for (SizeType i = 0; i < n; ++i) {
           upper_.next();
+        }
       } else {
         upper_.skip(n);
       }
@@ -609,6 +672,29 @@ class EliasFanoReader {
     return true;
   }
 
+  /**
+   * Prepare to skip to `value` by prefetching appropriate memory in both the
+   * upper and lower bits.
+   */
+  void prepareSkipTo(ValueType value) const {
+    // Also works when value_ == kInvalidValue.
+    if (value != kInvalidValue) {
+      DCHECK_GE(value + 1, value_ + 1);
+    }
+
+    if ((!kUnchecked && value > lastValue_) || (value == value_)) {
+      return;
+    }
+
+    // Do minimal computation required to prefetch address used in
+    // `readLowerPart()`.
+    ValueType upperValue = (value >> numLowerBits_);
+    const auto upperPosition = upper_.prepareSkipTo(upperValue);
+    const auto addr = lower_ + (upperPosition * numLowerBits_ / 8);
+    __builtin_prefetch(addr);
+    __builtin_prefetch(addr + kCacheLineSize);
+  }
+
   bool jump(SizeType n) {
     if (LIKELY(n < size_)) {  // Also checks that n != -1.
       value_ = readLowerPart(n) | (upper_.jump(n + 1) << numLowerBits_);
@@ -625,6 +711,11 @@ class EliasFanoReader {
     upper_.jumpToNext(value >> numLowerBits_);
     iterateTo(value);
     return true;
+  }
+
+  ValueType lastValue() const {
+    CHECK(!kUnchecked);
+    return lastValue_;
   }
 
   ValueType previousValue() const {
@@ -676,7 +767,9 @@ class EliasFanoReader {
     while (true) {
       value_ = readLowerPart(upper_.position()) |
         (upper_.value() << numLowerBits_);
-      if (LIKELY(value_ >= value)) break;
+      if (LIKELY(value_ >= value)) {
+        break;
+      }
       upper_.next();
     }
   }
@@ -691,4 +784,5 @@ class EliasFanoReader {
   uint8_t numLowerBits_;
 };
 
-}}  // namespaces
+} // namespace compression
+} // namespace folly

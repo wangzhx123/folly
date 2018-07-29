@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 #include <thread>
 
 #include <folly/experimental/LockFreeRingBuffer.h>
-#include <folly/test/DeterministicSchedule.h>
 #include <folly/portability/GTest.h>
+#include <folly/test/DeterministicSchedule.h>
 
 namespace folly {
 
@@ -92,7 +92,7 @@ TEST(LockFreeRingBuffer, readsCanBlock) {
 }
 
 // expose the cursor raw value via a wrapper type
-template<typename T, template<typename> class Atom>
+template <typename T, template <typename> class Atom>
 uint64_t value(const typename LockFreeRingBuffer<T, Atom>::Cursor& rbcursor) {
   typedef typename LockFreeRingBuffer<T,Atom>::Cursor RBCursor;
 
@@ -105,7 +105,7 @@ uint64_t value(const typename LockFreeRingBuffer<T, Atom>::Cursor& rbcursor) {
   return ExposedCursor(rbcursor).value();
 }
 
-template<template<typename> class Atom>
+template <template <typename> class Atom>
 void runReader(
     LockFreeRingBuffer<int, Atom>& rb, std::atomic<int32_t>& writes
 ) {
@@ -115,7 +115,7 @@ void runReader(
   }
 }
 
-template<template<typename> class Atom>
+template <template <typename> class Atom>
 void runWritesNeverFail(
     int capacity, int writes, int writers
 ) {

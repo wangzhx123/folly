@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,8 +25,8 @@
 #endif
 #include <fcntl.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <system_error>
 
 #include <boost/container/flat_set.hpp>
@@ -34,22 +34,30 @@
 
 #include <glog/logging.h>
 
-#include <folly/Assume.h>
 #include <folly/Conv.h>
 #include <folly/Exception.h>
 #include <folly/ScopeGuard.h>
-#include <folly/Shell.h>
 #include <folly/String.h>
 #include <folly/io/Cursor.h>
+#include <folly/lang/Assume.h>
 #include <folly/portability/Sockets.h>
 #include <folly/portability/Stdlib.h>
 #include <folly/portability/SysSyscall.h>
 #include <folly/portability/Unistd.h>
+#include <folly/system/Shell.h>
 
 constexpr int kExecFailure = 127;
 constexpr int kChildFailure = 126;
 
 namespace folly {
+
+ProcessReturnCode ProcessReturnCode::make(int status) {
+  if (!WIFEXITED(status) && !WIFSIGNALED(status)) {
+    throw std::runtime_error(
+        to<std::string>("Invalid ProcessReturnCode: ", status));
+  }
+  return ProcessReturnCode(status);
+}
 
 ProcessReturnCode::ProcessReturnCode(ProcessReturnCode&& p) noexcept
   : rawStatus_(p.rawStatus_) {
@@ -64,12 +72,19 @@ ProcessReturnCode& ProcessReturnCode::operator=(ProcessReturnCode&& p)
 }
 
 ProcessReturnCode::State ProcessReturnCode::state() const {
-  if (rawStatus_ == RV_NOT_STARTED) return NOT_STARTED;
-  if (rawStatus_ == RV_RUNNING) return RUNNING;
-  if (WIFEXITED(rawStatus_)) return EXITED;
-  if (WIFSIGNALED(rawStatus_)) return KILLED;
-  throw std::runtime_error(to<std::string>(
-      "Invalid ProcessReturnCode: ", rawStatus_));
+  if (rawStatus_ == RV_NOT_STARTED) {
+    return NOT_STARTED;
+  }
+  if (rawStatus_ == RV_RUNNING) {
+    return RUNNING;
+  }
+  if (WIFEXITED(rawStatus_)) {
+    return EXITED;
+  }
+  if (WIFSIGNALED(rawStatus_)) {
+    return KILLED;
+  }
+  assume_unreachable();
 }
 
 void ProcessReturnCode::enforce(State expected) const {
@@ -151,7 +166,7 @@ void checkStatus(ProcessReturnCode returnCode) {
   }
 }
 
-}  // namespace
+} // namespace
 
 Subprocess::Options& Subprocess::Options::fd(int fd, int action) {
   if (action == Subprocess::PIPE) {
@@ -178,7 +193,9 @@ Subprocess::Subprocess(
   if (argv.empty()) {
     throw std::invalid_argument("argv must not be empty");
   }
-  if (!executable) executable = argv[0].c_str();
+  if (!executable) {
+    executable = argv[0].c_str();
+  }
   spawn(cloneStrings(argv), executable, options, env);
 }
 
@@ -215,7 +232,7 @@ struct ChildErrorInfo {
   _exit(errCode);
 }
 
-}  // namespace
+} // namespace
 
 void Subprocess::setAllNonBlocking() {
   for (auto& p : pipes_) {
@@ -293,6 +310,12 @@ void Subprocess::spawn(
   pipesGuard.dismiss();
 }
 
+// With -Wclobbered, gcc complains about vfork potentially cloberring the
+// childDir variable, even though we only use it on the child side of the
+// vfork.
+
+FOLLY_PUSH_WARNING
+FOLLY_GCC_DISABLE_WARNING("-Wclobbered")
 void Subprocess::spawnInternal(
     std::unique_ptr<const char*[]> argv,
     const char* executable,
@@ -336,10 +359,10 @@ void Subprocess::spawnInternal(
       int cfd;
       if (p.second == PIPE_IN) {
         // Child gets reading end
-        pipe.pipe = folly::File(fds[1], /*owns_fd=*/ true);
+        pipe.pipe = folly::File(fds[1], /*ownsFd=*/true);
         cfd = fds[0];
       } else {
-        pipe.pipe = folly::File(fds[0], /*owns_fd=*/ true);
+        pipe.pipe = folly::File(fds[0], /*ownsFd=*/true);
         cfd = fds[1];
       }
       p.second = cfd;  // ensure it gets dup2()ed
@@ -427,8 +450,9 @@ void Subprocess::spawnInternal(
   // child has exited and can be immediately waited for.  In all other cases,
   // we have no way of cleaning up the child.
   pid_ = pid;
-  returnCode_ = ProcessReturnCode(RV_RUNNING);
+  returnCode_ = ProcessReturnCode::makeRunning();
 }
+FOLLY_POP_WARNING
 
 int Subprocess::prepareChild(const Options& options,
                              const sigset_t* sigmask,
@@ -562,7 +586,7 @@ ProcessReturnCode Subprocess::poll(struct rusage* ru) {
   if (found != 0) {
     // Though the child process had quit, this call does not close the pipes
     // since its descendants may still be using them.
-    returnCode_ = ProcessReturnCode(status);
+    returnCode_ = ProcessReturnCode::make(status);
     pid_ = -1;
   }
   return returnCode_;
@@ -590,7 +614,7 @@ ProcessReturnCode Subprocess::wait() {
   // Though the child process had quit, this call does not close the pipes
   // since its descendants may still be using them.
   DCHECK_EQ(found, pid_);
-  returnCode_ = ProcessReturnCode(status);
+  returnCode_ = ProcessReturnCode::make(status);
   pid_ = -1;
   return returnCode_;
 }
@@ -670,7 +694,7 @@ bool discardRead(int fd) {
   }
 }
 
-}  // namespace
+} // namespace
 
 std::pair<std::string, std::string> Subprocess::communicate(
     StringPiece input) {
@@ -858,6 +882,6 @@ class Initializer {
 
 Initializer initializer;
 
-}  // namespace
+} // namespace
 
-}  // namespace folly
+} // namespace folly

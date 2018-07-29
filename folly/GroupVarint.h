@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,37 +16,39 @@
 
 #pragma once
 
+#include <cstdint>
+#include <limits>
+
+#include <glog/logging.h>
+
 #if !defined(__GNUC__) && !defined(_MSC_VER)
 #error GroupVarint.h requires GCC or MSVC
 #endif
 
 #include <folly/Portability.h>
 
-#if FOLLY_X64 || defined(__i386__) || FOLLY_PPC64 || FOLLY_A64
+#if FOLLY_X64 || defined(__i386__) || FOLLY_PPC64 || FOLLY_AARCH64
 #define HAVE_GROUP_VARINT 1
 
-#include <cstdint>
-#include <limits>
-#include <folly/detail/GroupVarintDetail.h>
-#include <folly/Bits.h>
 #include <folly/Range.h>
+#include <folly/detail/GroupVarintDetail.h>
+#include <folly/lang/Bits.h>
 #include <folly/portability/Builtins.h>
-#include <glog/logging.h>
 
 #if FOLLY_SSE >= 3
 #include <nmmintrin.h>
 namespace folly {
 namespace detail {
-alignas(16) extern const uint64_t groupVarintSSEMasks[];
-}  // namespace detail
-}  // namespace folly
+extern const std::array<std::array<std::uint32_t, 4>, 256> groupVarintSSEMasks;
+} // namespace detail
+} // namespace folly
 #endif
 
 namespace folly {
 namespace detail {
-extern const uint8_t groupVarintLengths[];
-}  // namespace detail
-}  // namespace folly
+extern const std::array<std::uint8_t, 256> groupVarintLengths;
+} // namespace detail
+} // namespace folly
 
 namespace folly {
 
@@ -105,13 +107,21 @@ class GroupVarint<uint32_t> : public detail::GroupVarintBase<uint32_t> {
     uint8_t v = uint8_t(*p);
     size_t s = kHeaderSize;
     s += 1 + b0key(v);
-    if (s > size) return 0;
+    if (s > size) {
+      return 0;
+    }
     s += 1 + b1key(v);
-    if (s > size) return 1;
+    if (s > size) {
+      return 1;
+    }
     s += 1 + b2key(v);
-    if (s > size) return 2;
+    if (s > size) {
+      return 2;
+    }
     s += 1 + b3key(v);
-    if (s > size) return 3;
+    if (s > size) {
+      return 3;
+    }
     return 4;
   }
 
@@ -198,7 +208,7 @@ class GroupVarint<uint32_t> : public detail::GroupVarintBase<uint32_t> {
     uint8_t key = uint8_t(p[0]);
     __m128i val = _mm_loadu_si128((const __m128i*)(p+1));
     __m128i mask =
-        _mm_load_si128((const __m128i*)&detail::groupVarintSSEMasks[key * 2]);
+        _mm_load_si128((const __m128i*)detail::groupVarintSSEMasks[key].data());
     __m128i r = _mm_shuffle_epi8(val, mask);
     _mm_storeu_si128((__m128i*)dest, r);
     return p + detail::groupVarintLengths[key];
@@ -213,7 +223,7 @@ class GroupVarint<uint32_t> : public detail::GroupVarintBase<uint32_t> {
     uint8_t key = uint8_t(p[0]);
     __m128i val = _mm_loadu_si128((const __m128i*)(p+1));
     __m128i mask =
-        _mm_load_si128((const __m128i*)&detail::groupVarintSSEMasks[key * 2]);
+        _mm_load_si128((const __m128i*)detail::groupVarintSSEMasks[key].data());
     __m128i r = _mm_shuffle_epi8(val, mask);
 
     // Extracting 32 bits at a time out of an XMM register is a SSE4 feature
@@ -310,15 +320,25 @@ class GroupVarint<uint64_t> : public detail::GroupVarintBase<uint64_t> {
     uint16_t v = loadUnaligned<uint16_t>(p);
     size_t s = kHeaderSize;
     s += 1 + b0key(v);
-    if (s > size) return 0;
+    if (s > size) {
+      return 0;
+    }
     s += 1 + b1key(v);
-    if (s > size) return 1;
+    if (s > size) {
+      return 1;
+    }
     s += 1 + b2key(v);
-    if (s > size) return 2;
+    if (s > size) {
+      return 2;
+    }
     s += 1 + b3key(v);
-    if (s > size) return 3;
+    if (s > size) {
+      return 3;
+    }
     s += 1 + b4key(v);
-    if (s > size) return 4;
+    if (s > size) {
+      return 4;
+    }
     return 5;
   }
 
@@ -623,6 +643,6 @@ class GroupVarintDecoder {
 typedef GroupVarintDecoder<uint32_t> GroupVarint32Decoder;
 typedef GroupVarintDecoder<uint64_t> GroupVarint64Decoder;
 
-}  // namespace folly
+} // namespace folly
 
 #endif /* FOLLY_X64 || defined(__i386__) || FOLLY_PPC64 */

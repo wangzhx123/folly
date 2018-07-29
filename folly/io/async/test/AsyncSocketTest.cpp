@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 #include <iostream>
 
-#include <folly/io/async/AsyncSocket.h>
 #include <folly/io/async/AsyncServerSocket.h>
+#include <folly/io/async/AsyncSocket.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/portability/GTest.h>
 
@@ -24,14 +24,13 @@ namespace folly {
 
 TEST(AsyncSocketTest, getSockOpt) {
   EventBase evb;
-  std::shared_ptr<AsyncSocket> socket =
-    AsyncSocket::newSocket(&evb, 0);
+  std::shared_ptr<AsyncSocket> socket = AsyncSocket::newSocket(&evb, 0);
 
   int val;
   socklen_t len;
 
-  int expectedRc = getsockopt(socket->getFd(), SOL_SOCKET,
-                              SO_REUSEADDR, &val, &len);
+  int expectedRc =
+      getsockopt(socket->getFd(), SOL_SOCKET, SO_REUSEADDR, &val, &len);
   int actualRc = socket->getSockOpt(SOL_SOCKET, SO_REUSEADDR, &val, &len);
 
   EXPECT_EQ(expectedRc, actualRc);
@@ -46,7 +45,7 @@ TEST(AsyncSocketTest, REUSEPORT) {
 
   try {
     serverSocket->setReusePortEnabled(true);
-  } catch(...) {
+  } catch (...) {
     LOG(INFO) << "Reuse port probably not supported";
     return;
   }
@@ -60,7 +59,6 @@ TEST(AsyncSocketTest, REUSEPORT) {
   serverSocket2->bind(port);
   serverSocket2->listen(0);
   serverSocket2->startAccepting();
-
 }
 
 TEST(AsyncSocketTest, v4v6samePort) {
@@ -88,4 +86,4 @@ TEST(AsyncSocketTest, duplicateBind) {
   EXPECT_THROW(server2->bind(address.getPort()), std::exception);
 }
 
-} // namespace
+} // namespace folly

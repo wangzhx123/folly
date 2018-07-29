@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@
 #include <limits>
 #include <type_traits>
 
-#include <folly/Bits.h>
 #include <folly/Likely.h>
 #include <folly/Portability.h>
 #include <folly/Range.h>
@@ -28,6 +27,7 @@
 #include <folly/experimental/CodingDetail.h>
 #include <folly/experimental/Instructions.h>
 #include <folly/experimental/Select64.h>
+#include <folly/lang/Bits.h>
 #include <glog/logging.h>
 
 #if !FOLLY_X64
@@ -70,10 +70,11 @@ struct BitVectorCompressedListBase {
 typedef BitVectorCompressedListBase<const uint8_t*> BitVectorCompressedList;
 typedef BitVectorCompressedListBase<uint8_t*> MutableBitVectorCompressedList;
 
-template <class Value,
-          class SkipValue,
-          size_t kSkipQuantum = 0,
-          size_t kForwardQuantum = 0>
+template <
+    class Value,
+    class SkipValue,
+    size_t kSkipQuantum = 0,
+    size_t kForwardQuantum = 0>
 struct BitVectorEncoder {
   static_assert(std::is_integral<Value>::value &&
                     std::is_unsigned<Value>::value,
@@ -165,10 +166,11 @@ struct BitVectorEncoder {
   MutableCompressedList result_;
 };
 
-template <class Value,
-          class SkipValue,
-          size_t kSkipQuantum,
-          size_t kForwardQuantum>
+template <
+    class Value,
+    class SkipValue,
+    size_t kSkipQuantum,
+    size_t kForwardQuantum>
 struct BitVectorEncoder<Value, SkipValue, kSkipQuantum, kForwardQuantum>::
     Layout {
   static Layout fromUpperBoundAndSize(size_t upperBound, size_t size) {
@@ -251,15 +253,10 @@ class BitVectorReader : detail::ForwardPointers<Encoder::forwardQuantum>,
       : detail::ForwardPointers<Encoder::forwardQuantum>(list.forwardPointers),
         detail::SkipPointers<Encoder::skipQuantum>(list.skipPointers),
         bits_(list.bits),
-        size_(list.size) {
+        size_(list.size),
+        upperBound_(
+            (kUnchecked || UNLIKELY(list.size == 0)) ? 0 : list.upperBound) {
     reset();
-
-    if (kUnchecked || UNLIKELY(list.size == 0)) {
-      upperBound_ = 0;
-      return;
-    }
-
-    upperBound_ = list.upperBound;
   }
 
   void reset() {
@@ -438,8 +435,9 @@ class BitVectorReader : detail::ForwardPointers<Encoder::forwardQuantum>,
   SizeType position_;
   ValueType value_;
 
-  SizeType size_;
-  ValueType upperBound_;
+  const SizeType size_;
+  const ValueType upperBound_;
 };
 
-}}  // namespaces
+} // namespace compression
+} // namespace folly

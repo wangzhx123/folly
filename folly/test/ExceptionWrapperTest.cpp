@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 
 #include <stdexcept>
 
-#include <folly/ExceptionWrapper.h>
 #include <folly/Conv.h>
+#include <folly/ExceptionWrapper.h>
 #include <folly/portability/GTest.h>
 
 using namespace folly;
@@ -58,6 +58,14 @@ T& from_eptr(std::exception_ptr& eptr) {
   } catch (...) {
     throw std::logic_error("impossible");
   }
+}
+
+TEST(ExceptionWrapper, nothrow) {
+  EXPECT_TRUE(std::is_nothrow_default_constructible<exception_wrapper>::value);
+  EXPECT_TRUE(std::is_nothrow_move_constructible<exception_wrapper>::value);
+  EXPECT_TRUE(std::is_nothrow_move_assignable<exception_wrapper>::value);
+  EXPECT_TRUE(std::is_nothrow_copy_constructible<exception_wrapper>::value);
+  EXPECT_TRUE(std::is_nothrow_copy_assignable<exception_wrapper>::value);
 }
 
 // Tests that when we call throw_exception, the proper type is thrown (derived)
@@ -209,6 +217,28 @@ TEST(ExceptionWrapper, get_or_make_exception_ptr_test) {
   EXPECT_FALSE(eptr);
 }
 
+TEST(ExceptionWrapper, from_exception_ptr_empty) {
+  auto ep = std::exception_ptr();
+  auto ew = exception_wrapper::from_exception_ptr(ep);
+  EXPECT_FALSE(bool(ew));
+}
+
+TEST(ExceptionWrapper, from_exception_ptr_exn) {
+  auto ep = std::make_exception_ptr(std::runtime_error("foo"));
+  auto ew = exception_wrapper::from_exception_ptr(ep);
+  EXPECT_TRUE(bool(ew));
+  EXPECT_EQ(ep, ew.to_exception_ptr());
+  EXPECT_TRUE(ew.is_compatible_with<std::runtime_error>());
+}
+
+TEST(ExceptionWrapper, from_exception_ptr_any) {
+  auto ep = std::make_exception_ptr<int>(12);
+  auto ew = exception_wrapper::from_exception_ptr(ep);
+  EXPECT_TRUE(bool(ew));
+  EXPECT_EQ(ep, ew.to_exception_ptr());
+  EXPECT_TRUE(ew.is_compatible_with<int>());
+}
+
 TEST(ExceptionWrapper, with_exception_ptr_empty) {
   auto ew = exception_wrapper(std::exception_ptr());
   EXPECT_EQ(exception_wrapper::none(), ew.type());
@@ -232,12 +262,13 @@ TEST(ExceptionWrapper, with_shared_ptr_test) {
   EXPECT_EQ(typeid(std::runtime_error), ew.type());
   EXPECT_NE(nullptr, ew.get_exception());
   EXPECT_NE(nullptr, ew.get_exception<std::exception>());
+  EXPECT_STREQ("foo", ew.get_exception<std::exception>()->what());
   EXPECT_EQ(nullptr, ew.get_exception<int>());
   EXPECT_FALSE(ew.has_exception_ptr());
   EXPECT_NE(nullptr, ew.to_exception_ptr());
   EXPECT_TRUE(ew.has_exception_ptr());
-  EXPECT_EQ("std::runtime_error", ew.class_name());
-  EXPECT_EQ("std::runtime_error: foo", ew.what());
+  EXPECT_EQ(kRuntimeErrorClassName, ew.class_name());
+  EXPECT_EQ(kRuntimeErrorClassName + ": foo", ew.what());
   EXPECT_TRUE(ew.is_compatible_with<std::exception>());
   EXPECT_TRUE(ew.is_compatible_with<std::runtime_error>());
   EXPECT_FALSE(ew.is_compatible_with<int>());
@@ -264,12 +295,13 @@ TEST(ExceptionWrapper, with_exception_ptr_exn_test) {
   EXPECT_EQ(typeid(std::runtime_error), ew.type());
   EXPECT_NE(nullptr, ew.get_exception());
   EXPECT_NE(nullptr, ew.get_exception<std::exception>());
+  EXPECT_STREQ("foo", ew.get_exception<std::exception>()->what());
   EXPECT_EQ(nullptr, ew.get_exception<int>());
   EXPECT_TRUE(ew.has_exception_ptr());
   EXPECT_EQ(ep, ew.to_exception_ptr());
   EXPECT_TRUE(ew.has_exception_ptr());
-  EXPECT_EQ("std::runtime_error", ew.class_name());
-  EXPECT_EQ("std::runtime_error: foo", ew.what());
+  EXPECT_EQ(kRuntimeErrorClassName, ew.class_name());
+  EXPECT_EQ(kRuntimeErrorClassName + ": foo", ew.what());
   EXPECT_TRUE(ew.is_compatible_with<std::exception>());
   EXPECT_TRUE(ew.is_compatible_with<std::runtime_error>());
   EXPECT_FALSE(ew.is_compatible_with<int>());
@@ -296,11 +328,12 @@ TEST(ExceptionWrapper, with_exception_ptr_any_test) {
   EXPECT_EQ(nullptr, ew.get_exception());
   EXPECT_EQ(nullptr, ew.get_exception<std::exception>());
   EXPECT_NE(nullptr, ew.get_exception<int>());
+  EXPECT_EQ(12, *ew.get_exception<int>());
   EXPECT_TRUE(ew.has_exception_ptr());
   EXPECT_EQ(ep, ew.to_exception_ptr());
   EXPECT_TRUE(ew.has_exception_ptr());
-  EXPECT_EQ("int", ew.class_name());
-  EXPECT_EQ("int", ew.what());
+  EXPECT_EQ(demangle(typeid(int)), ew.class_name());
+  EXPECT_EQ(demangle(typeid(int)), ew.what());
   EXPECT_FALSE(ew.is_compatible_with<std::exception>());
   EXPECT_FALSE(ew.is_compatible_with<std::runtime_error>());
   EXPECT_TRUE(ew.is_compatible_with<int>());
@@ -326,13 +359,14 @@ TEST(ExceptionWrapper, with_non_std_exception_test) {
   EXPECT_EQ(nullptr, ew.get_exception());
   EXPECT_EQ(nullptr, ew.get_exception<std::exception>());
   EXPECT_NE(nullptr, ew.get_exception<int>());
-  EXPECT_FALSE(ew.has_exception_ptr());
-  EXPECT_EQ("int", ew.class_name());
-  EXPECT_EQ("int", ew.what());
+  EXPECT_EQ(42, *ew.get_exception<int>());
+  EXPECT_TRUE(ew.has_exception_ptr());
+  EXPECT_EQ(demangle(typeid(int)), ew.class_name());
+  EXPECT_EQ(demangle(typeid(int)), ew.what());
   EXPECT_NE(nullptr, ew.to_exception_ptr());
   EXPECT_TRUE(ew.has_exception_ptr());
-  EXPECT_EQ("int", ew.class_name());
-  EXPECT_EQ("int", ew.what());
+  EXPECT_EQ(demangle(typeid(int)), ew.class_name());
+  EXPECT_EQ(demangle(typeid(int)), ew.what());
   EXPECT_FALSE(ew.is_compatible_with<std::exception>());
   EXPECT_FALSE(ew.is_compatible_with<std::runtime_error>());
   EXPECT_TRUE(ew.is_compatible_with<int>());
@@ -359,6 +393,7 @@ TEST(ExceptionWrapper, with_exception_ptr_any_nil_test) {
   EXPECT_EQ(nullptr, ew.get_exception());
   EXPECT_EQ(nullptr, ew.get_exception<std::exception>());
   EXPECT_NE(nullptr, ew.get_exception<int>());
+  EXPECT_EQ(12, *ew.get_exception<int>());
   EXPECT_EQ(ep, ew.to_exception_ptr());
   EXPECT_EQ("<unknown exception>", ew.class_name()); // because concrete type is
   // erased
@@ -412,7 +447,7 @@ TEST(ExceptionWrapper, with_exception_deduction_returning) {
 namespace {
 template <typename T>
 T& r_to_l(T v) { return std::ref(v); }
-}
+} // namespace
 
 TEST(ExceptionWrapper, with_exception_deduction_functor_lvalue) {
   auto ew = make_exception_wrapper<std::runtime_error>("hi");
@@ -458,7 +493,7 @@ class TestException : public std::exception { };
 void testEW(const exception_wrapper& ew) {
   EXPECT_THROW(ew.throw_exception(), TestException);
 }
-}  // namespace
+} // namespace
 
 TEST(ExceptionWrapper, implicitConstruction) {
   // Try with both lvalue and rvalue references
@@ -479,7 +514,7 @@ exception_wrapper testNonStdException() {
     return exception_wrapper{std::current_exception(), e};
   }
 }
-}
+} // namespace
 
 TEST(ExceptionWrapper, base_derived_non_std_exception_test) {
   auto ew = testNonStdException();
@@ -497,7 +532,7 @@ struct BigRuntimeError : std::runtime_error {
 struct BigNonStdError {
   char data_[sizeof(exception_wrapper) + 1]{};
 };
-}
+} // namespace
 
 TEST(ExceptionWrapper, handle_std_exception) {
   auto ep = std::make_exception_ptr(std::runtime_error{"hello world"});
@@ -508,10 +543,10 @@ TEST(ExceptionWrapper, handle_std_exception) {
   bool handled = false;
   auto expect_runtime_error_yes_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::logic_error&) { EXPECT_TRUE(false); },
+        [](const std::logic_error&) { ADD_FAILURE(); },
         [&](const std::runtime_error&) { handled = true; },
-        [](const std::exception&) { EXPECT_TRUE(false); },
-        [](...) { EXPECT_TRUE(false); });
+        [](const std::exception&) { ADD_FAILURE(); },
+        [](...) { ADD_FAILURE(); });
   };
 
   expect_runtime_error_yes_catch_all(ew_eptr);
@@ -526,9 +561,9 @@ TEST(ExceptionWrapper, handle_std_exception) {
 
   auto expect_runtime_error_no_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::logic_error&) { EXPECT_TRUE(false); },
+        [](const std::logic_error&) { ADD_FAILURE(); },
         [&](const std::runtime_error&) { handled = true; },
-        [](const std::exception&) { EXPECT_TRUE(false); });
+        [](const std::exception&) { ADD_FAILURE(); });
   };
 
   expect_runtime_error_no_catch_all(ew_eptr);
@@ -543,10 +578,10 @@ TEST(ExceptionWrapper, handle_std_exception) {
 
   auto expect_runtime_error_catch_non_std = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::logic_error&) { EXPECT_TRUE(false); },
+        [](const std::logic_error&) { ADD_FAILURE(); },
         [&](const std::runtime_error&) { handled = true; },
-        [](const std::exception&) { EXPECT_TRUE(false); },
-        [](const int&) { EXPECT_TRUE(false); });
+        [](const std::exception&) { ADD_FAILURE(); },
+        [](const int&) { ADD_FAILURE(); });
   };
 
   expect_runtime_error_catch_non_std(ew_eptr);
@@ -563,12 +598,12 @@ TEST(ExceptionWrapper, handle_std_exception) {
   // outer handler:
   auto expect_runtime_error_rethrow = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::logic_error&) { EXPECT_TRUE(false); },
+        [](const std::logic_error&) { ADD_FAILURE(); },
         [&](const std::runtime_error& e) {
           handled = true;
           throw e;
         },
-        [](const std::exception&) { EXPECT_TRUE(false); });
+        [](const std::exception&) { ADD_FAILURE(); });
   };
 
   EXPECT_THROW(expect_runtime_error_rethrow(ew_eptr), std::runtime_error);
@@ -589,8 +624,8 @@ TEST(ExceptionWrapper, handle_std_exception_unhandled) {
   bool handled = false;
   auto expect_runtime_error_yes_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::logic_error&) { EXPECT_TRUE(false); },
-        [](const std::runtime_error&) { EXPECT_TRUE(false); },
+        [](const std::logic_error&) { ADD_FAILURE(); },
+        [](const std::runtime_error&) { ADD_FAILURE(); },
         [&](...) { handled = true; });
   };
 
@@ -610,7 +645,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_small) {
 
   auto expect_int_yes_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::exception&) { EXPECT_TRUE(false); },
+        [](const std::exception&) { ADD_FAILURE(); },
         [&](...) { handled = true; });
   };
 
@@ -626,7 +661,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_small) {
 
   auto expect_int_no_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::exception&) { EXPECT_TRUE(false); },
+        [](const std::exception&) { ADD_FAILURE(); },
         [&](const int&) { handled = true; });
   };
 
@@ -643,7 +678,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_small) {
   auto expect_int_no_catch_all_2 = [&](const exception_wrapper& ew) {
     ew.handle(
         [&](const int&) { handled = true; },
-        [](const std::exception&) { EXPECT_TRUE(false); });
+        [](const std::exception&) { ADD_FAILURE(); });
   };
 
   expect_int_no_catch_all_2(ew_eptr1);
@@ -665,7 +700,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_big) {
 
   auto expect_int_yes_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::exception&) { EXPECT_TRUE(false); },
+        [](const std::exception&) { ADD_FAILURE(); },
         [&](...) { handled = true; });
   };
 
@@ -681,7 +716,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_big) {
 
   auto expect_int_no_catch_all = [&](const exception_wrapper& ew) {
     ew.handle(
-        [](const std::exception&) { EXPECT_TRUE(false); },
+        [](const std::exception&) { ADD_FAILURE(); },
         [&](const BigNonStdError&) { handled = true; });
   };
 
@@ -698,7 +733,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_big) {
   auto expect_int_no_catch_all_2 = [&](const exception_wrapper& ew) {
     ew.handle(
         [&](const BigNonStdError&) { handled = true; },
-        [](const std::exception&) { EXPECT_TRUE(false); });
+        [](const std::exception&) { ADD_FAILURE(); });
   };
 
   expect_int_no_catch_all_2(ew_eptr1);
@@ -724,7 +759,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_rethrow_base_derived) {
             handled = true;
             throw e;
           },
-          [](const BaseException&) { EXPECT_TRUE(false); }),
+          [](const BaseException&) { ADD_FAILURE(); }),
       DerivedException);
   EXPECT_TRUE(handled);
   handled = false;
@@ -734,7 +769,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_rethrow_base_derived) {
             handled = true;
             throw e;
           },
-          [](...) { EXPECT_TRUE(false); }),
+          [](...) { ADD_FAILURE(); }),
       DerivedException);
   EXPECT_TRUE(handled);
 }
@@ -742,7 +777,7 @@ TEST(ExceptionWrapper, handle_non_std_exception_rethrow_base_derived) {
 TEST(ExceptionWrapper, self_swap_test) {
   exception_wrapper ew(std::runtime_error("hello world"));
   folly::swap(ew, ew);
-  EXPECT_STREQ("std::runtime_error: hello world", ew.what().c_str());
+  EXPECT_EQ(kRuntimeErrorClassName + ": hello world", ew.what());
   auto& ew2 = ew;
   ew = std::move(ew2); // should not crash
 }

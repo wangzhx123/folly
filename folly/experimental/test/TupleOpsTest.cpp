@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -119,10 +119,12 @@ struct TupleTo2<TemplateSeq<std::size_t, Ns...>> {
   }
 };
 
-template <class U, class T,
-          class Seq = typename TemplateTupleRange<U>::type,
-          class Enable = typename std::enable_if<
-            (std::tuple_size<U>::value == std::tuple_size<T>::value)>::type>
+template <
+    class U,
+    class T,
+    class Seq = typename TemplateTupleRange<U>::type,
+    class Enable = typename std::enable_if<
+        (std::tuple_size<U>::value == std::tuple_size<T>::value)>::type>
 U tupleTo2(const T& input) {
   return TupleTo2<Seq>::template convert<U>(input);
 }
@@ -146,4 +148,5 @@ TEST(TupleOps, TupleTo2) {
 
 #undef CHECK_TUPLE_TO
 
-}}  // namespaces
+} // namespace test
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,8 @@
 // Implements two commands: "cat" and "echo", which behave similarly to their
 // Unix homonyms.
 
-#include <folly/String.h>
 #include <folly/ScopeGuard.h>
+#include <folly/String.h>
 #include <folly/experimental/NestedCommandLineApp.h>
 #include <folly/experimental/ProgramOptions.h>
 
@@ -157,7 +157,7 @@ void runEcho(const po::variables_map& options,
   }
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char *argv[]) {
   // Initialize a NestedCommandLineApp object.

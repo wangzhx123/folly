@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,9 @@
 
 #include <thread>
 
+#include <boost/thread/barrier.hpp>
+#include <glog/logging.h>
+
 #include <folly/Singleton.h>
 #include <folly/experimental/io/FsUtil.h>
 #include <folly/io/async/EventBase.h>
@@ -27,10 +30,7 @@
 #include <folly/Subprocess.h>
 #endif
 
-#include <glog/logging.h>
-#include <boost/thread/barrier.hpp>
-
-FOLLY_GCC_DISABLE_WARNING("-Wdeprecated-declarations")
+FOLLY_GNU_DISABLE_WARNING("-Wdeprecated-declarations")
 
 using namespace folly;
 
@@ -262,8 +262,9 @@ TEST(Singleton, SharedPtrUsage) {
     auto start_time = std::chrono::steady_clock::now();
     vault.destroyInstances();
     auto duration = std::chrono::steady_clock::now() - start_time;
-    EXPECT_TRUE(duration > std::chrono::seconds{4} &&
-                duration < std::chrono::seconds{6});
+    EXPECT_TRUE(
+        duration > std::chrono::seconds{4} &&
+        duration < std::chrono::seconds{folly::kIsSanitizeAddress ? 30 : 6});
   }
   EXPECT_EQ(vault.registeredSingletonCount(), 4);
   EXPECT_EQ(vault.livingSingletonCount(), 0);
@@ -447,7 +448,7 @@ TEST(Singleton, SingletonConcurrencyStress) {
 
 namespace {
 struct EagerInitSyncTag {};
-}
+} // namespace
 template <typename T, typename Tag = detail::DefaultTag>
 using SingletonEagerInitSync = Singleton<T, Tag, EagerInitSyncTag>;
 TEST(Singleton, SingletonEagerInitSync) {
@@ -465,7 +466,7 @@ TEST(Singleton, SingletonEagerInitSync) {
 
 namespace {
 struct EagerInitAsyncTag {};
-}
+} // namespace
 template <typename T, typename Tag = detail::DefaultTag>
 using SingletonEagerInitAsync = Singleton<T, Tag, EagerInitAsyncTag>;
 TEST(Singleton, SingletonEagerInitAsync) {
@@ -518,11 +519,11 @@ class TestEagerInitParallelExecutor : public folly::Executor {
   std::vector<std::shared_ptr<std::thread>> threads_;
   std::atomic<size_t> counter_ {0};
 };
-}  // namespace
+} // namespace
 
 namespace {
 struct EagerInitParallelTag {};
-}
+} // namespace
 template <typename T, typename Tag = detail::DefaultTag>
 using SingletonEagerInitParallel = Singleton<T, Tag, EagerInitParallelTag>;
 TEST(Singleton, SingletonEagerInitParallel) {
@@ -634,7 +635,7 @@ TEST(Singleton, DoubleRegistrationLogging) {
 // Singleton using a non default constructor test/example:
 struct X {
   X() : X(-1, "unset") {}
-  X(int a1, std::string a2) : a1(a1), a2(a2) {
+  X(int a1_, std::string a2_) : a1(a1_), a2(a2_) {
     LOG(INFO) << "X(" << a1 << "," << a2 << ")";
   }
   const int a1;

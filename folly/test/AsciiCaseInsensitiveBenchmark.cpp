@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -89,7 +89,7 @@ struct AsciiCaseInsensitiveLegacy {
   }
 };
 
-template<typename Cmp>
+template <typename Cmp>
 inline void test_operator_on_search(int iters) {
   Cmp cmp;
   int dummy = 0;

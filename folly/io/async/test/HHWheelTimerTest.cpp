@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-present Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,7 +50,6 @@ class TestTimeout : public HHWheelTimer::Callback {
   std::deque<TimePoint> canceledTimestamps;
   std::function<void()> fn;
 };
-
 
 class TestTimeoutDelayed : public TestTimeout {
  protected:
@@ -122,6 +121,17 @@ TEST_F(HHWheelTimerTest, TestSchedulingWithinCallback) {
   ASSERT_EQ(t.count(), 0);
   ASSERT_EQ(t1.timestamps.size(), 1);
   ASSERT_EQ(t2.timestamps.size(), 1);
+}
+
+/*
+ * Test changing default-timeout in timer.
+ */
+TEST_F(HHWheelTimerTest, TestSetDefaultTimeout) {
+  HHWheelTimer& t = eventBase.timer();
+
+  t.setDefaultTimeout(milliseconds(1000));
+  // verify: default-time has been modified
+  ASSERT_EQ(t.getDefaultTimeout(), milliseconds(1000));
 }
 
 /*
@@ -228,7 +238,8 @@ TEST_F(HHWheelTimerTest, DestroyTimeoutSet) {
     t5_1.cancelTimeout();
     t10_1.cancelTimeout();
     t10_2.cancelTimeout();
-    t.reset();};
+    t.reset();
+  };
 
   TimePoint start;
   eventBase.loop();
@@ -338,10 +349,11 @@ TEST_F(HHWheelTimerTest, DeleteWheelInTimeout) {
  */
 TEST_F(HHWheelTimerTest, DefaultTimeout) {
   milliseconds defaultTimeout(milliseconds(5));
-  StackWheelTimer t(&eventBase,
-                    milliseconds(1),
-                    AsyncTimeout::InternalEnum::NORMAL,
-                    defaultTimeout);
+  StackWheelTimer t(
+      &eventBase,
+      milliseconds(1),
+      AsyncTimeout::InternalEnum::NORMAL,
+      defaultTimeout);
 
   TestTimeout t1;
   TestTimeout t2;
@@ -371,7 +383,7 @@ TEST_F(HHWheelTimerTest, DefaultTimeout) {
 TEST_F(HHWheelTimerTest, lambda) {
   StackWheelTimer t(&eventBase, milliseconds(1));
   size_t count = 0;
-  t.scheduleTimeoutFn([&]{ count++; }, milliseconds(1));
+  t.scheduleTimeoutFn([&] { count++; }, milliseconds(1));
   eventBase.loop();
   EXPECT_EQ(1, count);
 }
@@ -380,8 +392,8 @@ TEST_F(HHWheelTimerTest, lambda) {
 // at the console to confirm logging)
 TEST_F(HHWheelTimerTest, lambdaThrows) {
   StackWheelTimer t(&eventBase, milliseconds(1));
-  t.scheduleTimeoutFn([&]{ throw std::runtime_error("expected"); },
-                      milliseconds(1));
+  t.scheduleTimeoutFn(
+      [&] { throw std::runtime_error("expected"); }, milliseconds(1));
   eventBase.loop();
 }
 
@@ -428,5 +440,29 @@ TEST_F(HHWheelTimerTest, IntrusivePtr) {
   T_CHECK_TIMEOUT(start, t1.timestamps[0], milliseconds(5));
   T_CHECK_TIMEOUT(start, t2.timestamps[0], milliseconds(5));
   T_CHECK_TIMEOUT(start, t3.timestamps[0], milliseconds(10));
+  T_CHECK_TIMEOUT(start, end, milliseconds(10));
+}
+
+TEST_F(HHWheelTimerTest, GetTimeRemaining) {
+  StackWheelTimer t(&eventBase, milliseconds(1));
+  TestTimeout t1;
+
+  // Not scheduled yet, time remaining should be zero
+  ASSERT_EQ(t1.getTimeRemaining(), milliseconds(0));
+  ASSERT_EQ(t.count(), 0);
+
+  // Scheduled, time remaining should be less than or equal to the scheduled
+  // timeout
+  t.scheduleTimeout(&t1, milliseconds(10));
+  ASSERT_LE(t1.getTimeRemaining(), milliseconds(10));
+
+  TimePoint start;
+  eventBase.loop();
+  TimePoint end;
+
+  // Expired and time remaining should be zero
+  ASSERT_EQ(t1.getTimeRemaining(), milliseconds(0));
+
+  ASSERT_EQ(t.count(), 0);
   T_CHECK_TIMEOUT(start, end, milliseconds(10));
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -111,8 +111,8 @@ TEST(ExceptionCounter, multyThreads) {
 
   {
     std::unique_lock<std::mutex> lock(preparedMutex);
-    preparedBarrier.wait(lock,
-                         [&]() { return preparedThreads == kNumThreads; });
+    preparedBarrier.wait(
+        lock, [&]() { return preparedThreads == kNumThreads; });
   }
 
   auto stats = getExceptionStatistics();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,7 +98,7 @@ AsyncSocketException::AsyncSocketExceptionType exTypefromSSLErr(SSLError err) {
       return AsyncSocketException::SSL_ERROR;
   }
 }
-}
+} // namespace
 
 namespace folly {
 
@@ -127,4 +127,4 @@ SSLException::SSLException(SSLError error)
           getSSLErrorString(error).str(),
           0),
       sslError(error) {}
-}
+} // namespace folly

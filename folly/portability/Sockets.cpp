@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#include <event2/util.h>
+#include <event2/util.h> // @manual
 
-#include <MSWSock.h>
+#include <MSWSock.h> // @manual
 
 #include <folly/ScopeGuard.h>
 

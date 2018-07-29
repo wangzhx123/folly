@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,28 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #pragma once
 
 #include <functional>
-#include <boost/iterator/iterator_adaptor.hpp>
-#include <boost/iterator/iterator_facade.hpp>
-#include <folly/Likely.h>
+
+#include <folly/CPortability.h>
 #include <folly/Conv.h>
 #include <folly/Format.h>
+#include <folly/Likely.h>
+#include <folly/detail/Iterators.h>
 
 //////////////////////////////////////////////////////////////////////
 
 namespace std {
 
-template<>
-struct hash< ::folly::dynamic> {
+template <>
+struct hash<::folly::dynamic> {
   size_t operator()(::folly::dynamic const& d) const {
     return d.hash();
   }
 };
 
-}
+} // namespace std
 
 //////////////////////////////////////////////////////////////////////
 
@@ -74,46 +74,68 @@ struct hash< ::folly::dynamic> {
 
 namespace folly {
 
-struct TypeError : std::runtime_error {
+struct FOLLY_EXPORT TypeError : std::runtime_error {
   explicit TypeError(const std::string& expected, dynamic::Type actual);
-  explicit TypeError(const std::string& expected,
-    dynamic::Type actual1, dynamic::Type actual2);
+  explicit TypeError(
+      const std::string& expected,
+      dynamic::Type actual1,
+      dynamic::Type actual2);
+  // TODO: noexcept calculation required through gcc-v4.9; remove once upgrading
+  // to gcc-v5.
+  TypeError(const TypeError&) noexcept(
+      std::is_nothrow_copy_constructible<std::runtime_error>::value);
+  TypeError& operator=(const TypeError&) noexcept(
+      std::is_nothrow_copy_assignable<std::runtime_error>::value);
+  TypeError(TypeError&&) noexcept(
+      std::is_nothrow_move_constructible<std::runtime_error>::value);
+  TypeError& operator=(TypeError&&) noexcept(
+      std::is_nothrow_move_assignable<std::runtime_error>::value);
   ~TypeError() override;
 };
 
+[[noreturn]] void throwTypeError_(
+    std::string const& expected,
+    dynamic::Type actual);
+[[noreturn]] void throwTypeError_(
+    std::string const& expected,
+    dynamic::Type actual1,
+    dynamic::Type actual2);
 
 //////////////////////////////////////////////////////////////////////
 
 namespace detail {
 
-  // This helper is used in destroy() to be able to run destructors on
-  // types like "int64_t" without a compiler error.
-  struct Destroy {
-    template<class T> static void destroy(T* t) { t->~T(); }
-  };
-
-  /*
-   * Helper for implementing numeric conversions in operators on
-   * numbers.  Just promotes to double when one of the arguments is
-   * double, or throws if either is not a numeric type.
-   */
-  template<template<class> class Op>
-  dynamic numericOp(dynamic const& a, dynamic const& b) {
-    if (!a.isNumber() || !b.isNumber()) {
-      throw TypeError("numeric", a.type(), b.type());
-    }
-    if (a.type() != b.type()) {
-      auto& integ  = a.isInt() ? a : b;
-      auto& nonint = a.isInt() ? b : a;
-      return Op<double>()(to<double>(integ.asInt()), nonint.asDouble());
-    }
-    if (a.isDouble()) {
-      return Op<double>()(a.asDouble(), b.asDouble());
-    }
-    return Op<int64_t>()(a.asInt(), b.asInt());
+// This helper is used in destroy() to be able to run destructors on
+// types like "int64_t" without a compiler error.
+struct Destroy {
+  template <class T>
+  static void destroy(T* t) {
+    t->~T();
   }
+};
 
+/*
+ * Helper for implementing numeric conversions in operators on
+ * numbers.  Just promotes to double when one of the arguments is
+ * double, or throws if either is not a numeric type.
+ */
+template <template <class> class Op>
+dynamic numericOp(dynamic const& a, dynamic const& b) {
+  if (!a.isNumber() || !b.isNumber()) {
+    throwTypeError_("numeric", a.type(), b.type());
+  }
+  if (a.type() != b.type()) {
+    auto& integ = a.isInt() ? a : b;
+    auto& nonint = a.isInt() ? b : a;
+    return Op<double>()(to<double>(integ.asInt()), nonint.asDouble());
+  }
+  if (a.isDouble()) {
+    return Op<double>()(a.asDouble(), b.asDouble());
+  }
+  return Op<int64_t>()(a.asInt(), b.asInt());
 }
+
+} // namespace detail
 
 //////////////////////////////////////////////////////////////////////
 
@@ -156,7 +178,7 @@ struct dynamic::ObjectMaker {
     return std::move(*this);
   }
 
-private:
+ private:
   dynamic val_;
 };
 
@@ -174,79 +196,91 @@ inline dynamic::ObjectMaker dynamic::object(dynamic a, dynamic b) {
 
 //////////////////////////////////////////////////////////////////////
 
-struct dynamic::item_iterator : boost::iterator_adaptor<
+struct dynamic::item_iterator : detail::IteratorAdaptor<
                                     dynamic::item_iterator,
-                                    dynamic::ObjectImpl::iterator> {
-  /* implicit */ item_iterator(base_type b) : iterator_adaptor_(b) {}
+                                    dynamic::ObjectImpl::iterator,
+                                    std::pair<dynamic const, dynamic>> {
+  using Super = detail::IteratorAdaptor<
+      dynamic::item_iterator,
+      dynamic::ObjectImpl::iterator,
+      std::pair<dynamic const, dynamic>>;
+  /* implicit */ item_iterator(dynamic::ObjectImpl::iterator b) : Super(b) {}
 
   using object_type = dynamic::ObjectImpl;
-
- private:
-  friend class boost::iterator_core_access;
 };
 
-struct dynamic::value_iterator : boost::iterator_adaptor<
+struct dynamic::value_iterator : detail::IteratorAdaptor<
                                      dynamic::value_iterator,
                                      dynamic::ObjectImpl::iterator,
                                      dynamic> {
-  /* implicit */ value_iterator(base_type b) : iterator_adaptor_(b) {}
+  using Super = detail::IteratorAdaptor<
+      dynamic::value_iterator,
+      dynamic::ObjectImpl::iterator,
+      dynamic>;
+  /* implicit */ value_iterator(dynamic::ObjectImpl::iterator b) : Super(b) {}
 
   using object_type = dynamic::ObjectImpl;
 
- private:
   dynamic& dereference() const {
-    return base_reference()->second;
+    return base()->second;
   }
-  friend class boost::iterator_core_access;
 };
 
 struct dynamic::const_item_iterator
-  : boost::iterator_adaptor<dynamic::const_item_iterator,
-                            dynamic::ObjectImpl::const_iterator> {
-  /* implicit */ const_item_iterator(base_type b) : iterator_adaptor_(b) { }
-  /* implicit */ const_item_iterator(item_iterator i)
-      : iterator_adaptor_(i.base()) {}
-  /* implicit */ const_item_iterator(dynamic::ObjectImpl::iterator i)
-      : iterator_adaptor_(i) {}
+    : detail::IteratorAdaptor<
+          dynamic::const_item_iterator,
+          dynamic::ObjectImpl::const_iterator,
+          std::pair<dynamic const, dynamic> const> {
+  using Super = detail::IteratorAdaptor<
+      dynamic::const_item_iterator,
+      dynamic::ObjectImpl::const_iterator,
+      std::pair<dynamic const, dynamic> const>;
+  /* implicit */ const_item_iterator(dynamic::ObjectImpl::const_iterator b)
+      : Super(b) {}
+  /* implicit */ const_item_iterator(const_item_iterator const& i)
+      : Super(i.base()) {}
+  /* implicit */ const_item_iterator(item_iterator i) : Super(i.base()) {}
 
   using object_type = dynamic::ObjectImpl const;
-
- private:
-  friend class boost::iterator_core_access;
 };
 
-struct dynamic::const_key_iterator
-  : boost::iterator_adaptor<dynamic::const_key_iterator,
-                            dynamic::ObjectImpl::const_iterator,
-                            dynamic const> {
-  /* implicit */ const_key_iterator(base_type b) : iterator_adaptor_(b) { }
+struct dynamic::const_key_iterator : detail::IteratorAdaptor<
+                                         dynamic::const_key_iterator,
+                                         dynamic::ObjectImpl::const_iterator,
+                                         dynamic const> {
+  using Super = detail::IteratorAdaptor<
+      dynamic::const_key_iterator,
+      dynamic::ObjectImpl::const_iterator,
+      dynamic const>;
+  /* implicit */ const_key_iterator(dynamic::ObjectImpl::const_iterator b)
+      : Super(b) {}
 
   using object_type = dynamic::ObjectImpl const;
 
- private:
   dynamic const& dereference() const {
-    return base_reference()->first;
+    return base()->first;
   }
-  friend class boost::iterator_core_access;
 };
 
-struct dynamic::const_value_iterator
-  : boost::iterator_adaptor<dynamic::const_value_iterator,
-                            dynamic::ObjectImpl::const_iterator,
-                            dynamic const> {
-  /* implicit */ const_value_iterator(base_type b) : iterator_adaptor_(b) { }
-  /* implicit */ const_value_iterator(value_iterator i)
-      : iterator_adaptor_(i.base()) {}
+struct dynamic::const_value_iterator : detail::IteratorAdaptor<
+                                           dynamic::const_value_iterator,
+                                           dynamic::ObjectImpl::const_iterator,
+                                           dynamic const> {
+  using Super = detail::IteratorAdaptor<
+      dynamic::const_value_iterator,
+      dynamic::ObjectImpl::const_iterator,
+      dynamic const>;
+  /* implicit */ const_value_iterator(dynamic::ObjectImpl::const_iterator b)
+      : Super(b) {}
+  /* implicit */ const_value_iterator(value_iterator i) : Super(i.base()) {}
   /* implicit */ const_value_iterator(dynamic::ObjectImpl::iterator i)
-      : iterator_adaptor_(i) {}
+      : Super(i) {}
 
   using object_type = dynamic::ObjectImpl const;
 
- private:
   dynamic const& dereference() const {
-    return base_reference()->second;
+    return base()->second;
   }
-  friend class boost::iterator_core_access;
 };
 
 //////////////////////////////////////////////////////////////////////
@@ -328,7 +362,16 @@ struct dynamic::NumericTypeHelper<double> {
   using type = double;
 };
 
-template<class T, class NumericType /* = typename NumericTypeHelper<T>::type */>
+inline dynamic::dynamic(std::vector<bool>::reference b)
+    : dynamic(static_cast<bool>(b)) {}
+#if defined(_LIBCPP_VERSION)
+inline dynamic::dynamic(std::vector<bool>::const_reference b)
+    : dynamic(static_cast<bool>(b)) {}
+#endif
+
+template <
+    class T,
+    class NumericType /* = typename NumericTypeHelper<T>::type */>
 dynamic::dynamic(T t) {
   type_ = TypeInfo<NumericType>::type;
   new (getAddress<NumericType>()) NumericType(NumericType(t));
@@ -473,18 +516,18 @@ inline StringPiece dynamic::stringPiece() const {
   return get<std::string>();
 }
 
-template<class T>
+template <class T>
 struct dynamic::CompareOp {
   static bool comp(T const& a, T const& b) { return a < b; }
 };
-template<>
+template <>
 struct dynamic::CompareOp<dynamic::ObjectImpl> {
   static bool comp(ObjectImpl const&, ObjectImpl const&) {
     // This code never executes; it is just here for the compiler.
     return false;
   }
 };
-template<>
+template <>
 struct dynamic::CompareOp<std::nullptr_t> {
   static bool comp(std::nullptr_t const&, std::nullptr_t const&) {
     return true;
@@ -515,13 +558,13 @@ inline dynamic& dynamic::operator/=(dynamic const& o) {
   return *this;
 }
 
-#define FB_DYNAMIC_INTEGER_OP(op)                           \
-  inline dynamic& dynamic::operator op(dynamic const& o) {  \
-    if (!isInt() || !o.isInt()) {                           \
-      throw TypeError("int64", type(), o.type());           \
-    }                                                       \
-    *getAddress<int64_t>() op o.asInt();                    \
-    return *this;                                           \
+#define FB_DYNAMIC_INTEGER_OP(op)                          \
+  inline dynamic& dynamic::operator op(dynamic const& o) { \
+    if (!isInt() || !o.isInt()) {                          \
+      throwTypeError_("int64", type(), o.type());          \
+    }                                                      \
+    *getAddress<int64_t>() op o.asInt();                   \
+    return *this;                                          \
   }
 
 FB_DYNAMIC_INTEGER_OP(%=)
@@ -549,25 +592,30 @@ inline dynamic&& dynamic::operator[](dynamic const& idx) && {
   return std::move((*this)[idx]);
 }
 
-template<class K, class V> inline dynamic& dynamic::setDefault(K&& k, V&& v) {
+template <class K, class V> inline dynamic& dynamic::setDefault(K&& k, V&& v) {
   auto& obj = get<ObjectImpl>();
   return obj.insert(std::make_pair(std::forward<K>(k),
                                    std::forward<V>(v))).first->second;
 }
 
-template<class K> inline dynamic& dynamic::setDefault(K&& k, dynamic&& v) {
+template <class K> inline dynamic& dynamic::setDefault(K&& k, dynamic&& v) {
   auto& obj = get<ObjectImpl>();
   return obj.insert(std::make_pair(std::forward<K>(k),
                                    std::move(v))).first->second;
 }
 
-template<class K> inline dynamic& dynamic::setDefault(K&& k, const dynamic& v) {
+template <class K> inline dynamic& dynamic::setDefault(K&& k, const dynamic& v) {
   auto& obj = get<ObjectImpl>();
   return obj.insert(std::make_pair(std::forward<K>(k), v)).first->second;
 }
 
 inline dynamic* dynamic::get_ptr(dynamic const& idx) & {
   return const_cast<dynamic*>(const_cast<dynamic const*>(this)->get_ptr(idx));
+}
+
+inline dynamic* dynamic::get_ptr(json_pointer const& jsonPtr) & {
+  return const_cast<dynamic*>(
+      const_cast<dynamic const*>(this)->get_ptr(jsonPtr));
 }
 
 inline dynamic& dynamic::at(dynamic const& idx) & {
@@ -596,7 +644,7 @@ inline dynamic::item_iterator dynamic::find(dynamic const& key) {
   return get<ObjectImpl>().find(key);
 }
 
-template<class K, class V> inline void dynamic::insert(K&& key, V&& val) {
+template <class K, class V> inline void dynamic::insert(K&& key, V&& val) {
   auto& obj = get<ObjectImpl>();
   auto rv = obj.insert({ std::forward<K>(key), nullptr });
   rv.first->second = std::forward<V>(val);
@@ -604,7 +652,7 @@ template<class K, class V> inline void dynamic::insert(K&& key, V&& val) {
 
 inline void dynamic::update(const dynamic& mergeObj) {
   if (!isObject() || !mergeObj.isObject()) {
-    throw TypeError("object", type(), mergeObj.type());
+    throwTypeError_("object", type(), mergeObj.type());
   }
 
   for (const auto& pair : mergeObj.items()) {
@@ -614,13 +662,36 @@ inline void dynamic::update(const dynamic& mergeObj) {
 
 inline void dynamic::update_missing(const dynamic& mergeObj1) {
   if (!isObject() || !mergeObj1.isObject()) {
-    throw TypeError("object", type(), mergeObj1.type());
+    throwTypeError_("object", type(), mergeObj1.type());
   }
 
   // Only add if not already there
   for (const auto& pair : mergeObj1.items()) {
     if ((*this).find(pair.first) == (*this).items().end()) {
       (*this)[pair.first] = pair.second;
+    }
+  }
+}
+
+inline void dynamic::merge_patch(const dynamic& patch) {
+  auto& self = *this;
+  if (!patch.isObject()) {
+    self = patch;
+    return;
+  }
+  // if we are not an object, erase all contents, reset to object
+  if (!isObject()) {
+    self = object;
+  }
+  for (const auto& pair : patch.items()) {
+    if (pair.second.isNull()) {
+      // if name could be found in current object, remove it
+      auto it = self.find(pair.first);
+      if (it != self.items().end()) {
+        self.erase(it);
+      }
+    } else {
+      self[pair.first].merge_patch(pair.second);
     }
   }
 }
@@ -724,7 +795,7 @@ FOLLY_DYNAMIC_DEC_TYPEINFO(dynamic::ObjectImpl, "object",  dynamic::OBJECT)
 
 #undef FOLLY_DYNAMIC_DEC_TYPEINFO
 
-template<class T>
+template <class T>
 T dynamic::asImpl() const {
   switch (type()) {
   case INT64:    return to<T>(*get_nothrow<int64_t>());
@@ -733,12 +804,12 @@ T dynamic::asImpl() const {
   case STRING:
     return to<T>(*get_nothrow<std::string>());
   default:
-    throw TypeError("int/double/bool/string", type());
+    throwTypeError_("int/double/bool/string", type());
   }
 }
 
 // Return a T* to our type, or null if we're not that type.
-template<class T>
+template <class T>
 T* dynamic::get_nothrow() & noexcept {
   if (type_ != TypeInfo<T>::type) {
     return nullptr;
@@ -746,37 +817,37 @@ T* dynamic::get_nothrow() & noexcept {
   return getAddress<T>();
 }
 
-template<class T>
+template <class T>
 T const* dynamic::get_nothrow() const& noexcept {
   return const_cast<dynamic*>(this)->get_nothrow<T>();
 }
 
 // Return T* for where we can put a T, without type checking.  (Memory
 // might be uninitialized, even.)
-template<class T>
+template <class T>
 T* dynamic::getAddress() noexcept {
   return GetAddrImpl<T>::get(u_);
 }
 
-template<class T>
+template <class T>
 T const* dynamic::getAddress() const noexcept {
   return const_cast<dynamic*>(this)->getAddress<T>();
 }
 
-template<class T> struct dynamic::GetAddrImpl {};
-template<> struct dynamic::GetAddrImpl<std::nullptr_t> {
+template <class T> struct dynamic::GetAddrImpl {};
+template <> struct dynamic::GetAddrImpl<std::nullptr_t> {
   static std::nullptr_t* get(Data& d) noexcept { return &d.nul; }
 };
-template<> struct dynamic::GetAddrImpl<dynamic::Array> {
+template <> struct dynamic::GetAddrImpl<dynamic::Array> {
   static Array* get(Data& d) noexcept { return &d.array; }
 };
-template<> struct dynamic::GetAddrImpl<bool> {
+template <> struct dynamic::GetAddrImpl<bool> {
   static bool* get(Data& d) noexcept { return &d.boolean; }
 };
-template<> struct dynamic::GetAddrImpl<int64_t> {
+template <> struct dynamic::GetAddrImpl<int64_t> {
   static int64_t* get(Data& d) noexcept { return &d.integer; }
 };
-template<> struct dynamic::GetAddrImpl<double> {
+template <> struct dynamic::GetAddrImpl<double> {
   static double* get(Data& d) noexcept { return &d.doubl; }
 };
 template <>
@@ -785,7 +856,7 @@ struct dynamic::GetAddrImpl<std::string> {
     return &d.string;
   }
 };
-template<> struct dynamic::GetAddrImpl<dynamic::ObjectImpl> {
+template <> struct dynamic::GetAddrImpl<dynamic::ObjectImpl> {
   static_assert(sizeof(ObjectImpl) <= sizeof(Data::objectBuffer),
     "In your implementation, std::unordered_map<> apparently takes different"
     " amount of space depending on its template parameters.  This is "
@@ -797,15 +868,15 @@ template<> struct dynamic::GetAddrImpl<dynamic::ObjectImpl> {
   }
 };
 
-template<class T>
+template <class T>
 T& dynamic::get() {
   if (auto* p = get_nothrow<T>()) {
     return *p;
   }
-  throw TypeError(TypeInfo<T>::name, type());
+  throwTypeError_(TypeInfo<T>::name, type());
 }
 
-template<class T>
+template <class T>
 T const& dynamic::get() const {
   return const_cast<dynamic*>(this)->get<T>();
 }
@@ -816,7 +887,7 @@ T const& dynamic::get() const {
  * Helper for implementing operator<<.  Throws if the type shouldn't
  * support it.
  */
-template<class T>
+template <class T>
 struct dynamic::PrintImpl {
   static void print(dynamic const&, std::ostream& out, T const& t) {
     out << t;
@@ -831,7 +902,7 @@ struct dynamic::PrintImpl<std::nullptr_t> {
     out << "null";
   }
 };
-template<>
+template <>
 struct dynamic::PrintImpl<dynamic::ObjectImpl> {
   static void print(dynamic const& d,
                     std::ostream& out,
@@ -839,7 +910,7 @@ struct dynamic::PrintImpl<dynamic::ObjectImpl> {
     d.print_as_pseudo_json(out);
   }
 };
-template<>
+template <>
 struct dynamic::PrintImpl<dynamic::Array> {
   static void print(dynamic const& d,
                     std::ostream& out,
@@ -943,6 +1014,6 @@ class FormatValue<detail::DefaultValueWrapper<dynamic, V>> {
   const detail::DefaultValueWrapper<dynamic, V>& val_;
 };
 
-}  // namespaces
+} // namespace folly
 
 #undef FB_DYNAMIC_APPLY

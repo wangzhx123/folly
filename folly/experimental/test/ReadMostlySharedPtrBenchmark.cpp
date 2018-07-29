@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,9 +25,10 @@
 #include <folly/experimental/RCURefCount.h>
 #include <folly/portability/GFlags.h>
 
-template <template<typename> class MainPtr,
-          template<typename> class WeakPtr,
-          size_t threadCount>
+template <
+    template <typename> class MainPtr,
+    template <typename> class WeakPtr,
+    size_t threadCount>
 void benchmark(size_t n) {
   MainPtr<int> mainPtr(std::make_unique<int>(42));
 

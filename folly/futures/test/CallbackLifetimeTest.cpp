@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ class CallbackLifetimeTest : public testing::Test {
 
   TestExecutor executor{2}; // need at least 2 threads for internal futures
 };
-}
+} // namespace
 
 TEST_F(CallbackLifetimeTest, thenReturnsValue) {
   auto c = mkC();

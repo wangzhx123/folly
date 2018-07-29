@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,48 +19,53 @@
 #include <atomic>
 #include <thread>
 
-#include <folly/futures/FutureException.h>
+#include <folly/executors/InlineExecutor.h>
 #include <folly/futures/detail/Core.h>
 
 namespace folly {
 
-template <class T>
-Promise<T>::Promise() : retrieved_(false), core_(new detail::Core<T>())
-{}
+namespace futures {
+namespace detail {
+template <typename T>
+void coreDetachPromiseMaybeWithResult(Core<T>& core) {
+  if (!core.hasResult()) {
+    core.setResult(Try<T>(exception_wrapper(BrokenPromise(typeid(T).name()))));
+  }
+  core.detachPromise();
+}
+} // namespace detail
+} // namespace futures
 
 template <class T>
-Promise<T>::Promise(Promise<T>&& other) noexcept
-    : retrieved_(other.retrieved_), core_(other.core_) {
-  other.core_ = nullptr;
-  other.retrieved_ = false;
+Promise<T> Promise<T>::makeEmpty() noexcept {
+  return Promise<T>(futures::detail::EmptyConstruct{});
 }
 
 template <class T>
+Promise<T>::Promise() : retrieved_(false), core_(Core::make()) {}
+
+template <class T>
+Promise<T>::Promise(Promise<T>&& other) noexcept
+    : retrieved_(exchange(other.retrieved_, false)),
+      core_(exchange(other.core_, nullptr)) {}
+
+template <class T>
 Promise<T>& Promise<T>::operator=(Promise<T>&& other) noexcept {
-  std::swap(core_, other.core_);
-  std::swap(retrieved_, other.retrieved_);
+  detach();
+  retrieved_ = exchange(other.retrieved_, false);
+  core_ = exchange(other.core_, nullptr);
   return *this;
 }
 
 template <class T>
-void Promise<T>::throwIfFulfilled() {
-  if (UNLIKELY(!core_)) {
-    throw NoState();
-  }
-  if (UNLIKELY(core_->ready())) {
-    throw PromiseAlreadySatisfied();
+void Promise<T>::throwIfFulfilled() const {
+  if (getCore().hasResult()) {
+    throw_exception<PromiseAlreadySatisfied>();
   }
 }
 
 template <class T>
-void Promise<T>::throwIfRetrieved() {
-  if (UNLIKELY(retrieved_)) {
-    throw FutureAlreadyRetrieved();
-  }
-}
-
-template <class T>
-Promise<T>::Promise(detail::EmptyConstruct) noexcept
+Promise<T>::Promise(futures::detail::EmptyConstruct) noexcept
     : retrieved_(false), core_(nullptr) {}
 
 template <class T>
@@ -71,18 +76,28 @@ Promise<T>::~Promise() {
 template <class T>
 void Promise<T>::detach() {
   if (core_) {
-    if (!retrieved_)
+    if (!retrieved_) {
       core_->detachFuture();
-    core_->detachPromise();
+    }
+    futures::detail::coreDetachPromiseMaybeWithResult(*core_);
     core_ = nullptr;
   }
 }
 
 template <class T>
-Future<T> Promise<T>::getFuture() {
-  throwIfRetrieved();
+SemiFuture<T> Promise<T>::getSemiFuture() {
+  if (retrieved_) {
+    throw_exception<FutureAlreadyRetrieved>();
+  }
   retrieved_ = true;
-  return Future<T>(core_);
+  return SemiFuture<T>(&getCore());
+}
+
+template <class T>
+Future<T> Promise<T>::getFuture() {
+  // An InlineExecutor approximates the old behaviour of continuations
+  // running inine on setting the value of the promise.
+  return getSemiFuture().via(&InlineExecutor::instance());
 }
 
 template <class T>
@@ -93,26 +108,14 @@ Promise<T>::setException(E const& e) {
 }
 
 template <class T>
-void Promise<T>::setException(std::exception_ptr const& ep) {
-  try {
-    std::rethrow_exception(ep);
-  } catch (const std::exception& e) {
-    setException(exception_wrapper(std::current_exception(), e));
-  } catch (...) {
-    setException(exception_wrapper(std::current_exception()));
-  }
-}
-
-template <class T>
 void Promise<T>::setException(exception_wrapper ew) {
-  throwIfFulfilled();
-  core_->setResult(Try<T>(std::move(ew)));
+  setTry(Try<T>(std::move(ew)));
 }
 
 template <class T>
-void Promise<T>::setInterruptHandler(
-  std::function<void(exception_wrapper const&)> fn) {
-  core_->setInterruptHandler(std::move(fn));
+template <typename F>
+void Promise<T>::setInterruptHandler(F&& fn) {
+  getCore().setInterruptHandler(std::forward<F>(fn));
 }
 
 template <class T>
@@ -145,4 +148,4 @@ bool Promise<T>::isFulfilled() const noexcept {
   return true;
 }
 
-}
+} // namespace folly

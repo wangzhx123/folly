@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,8 +25,8 @@
 
 #include <glog/logging.h>
 
-#include <folly/Hash.h>
 #include <folly/Range.h>
+#include <folly/hash/Hash.h>
 #include <folly/portability/GFlags.h>
 #include <folly/portability/GTest.h>
 
@@ -106,25 +106,26 @@ struct MemoryLeakCheckerAllocator {
     return alloc_ == other.alloc_;
   }
 
-private:
+ private:
   Alloc alloc_;
 };
 
-typedef MemoryLeakCheckerAllocator<std::allocator<char>> KeyLeakChecker;
-typedef MemoryLeakCheckerAllocator<
-  std::allocator<std::pair<const StringPiece, int>>> ValueLeakChecker;
+using KeyValuePairLeakChecker = MemoryLeakCheckerAllocator<
+    std::allocator<std::pair<const StringPiece, int>>>;
+using ValueLeakChecker =
+    MemoryLeakCheckerAllocator<std::allocator<StringPiece>>;
 
 typedef StringKeyedUnorderedMap<
     int,
     folly::Hash,
     std::equal_to<StringPiece>,
-    ValueLeakChecker>
+    KeyValuePairLeakChecker>
     LeakCheckedUnorderedMap;
 
 typedef StringKeyedSetBase<std::less<StringPiece>, ValueLeakChecker>
     LeakCheckedSet;
 
-typedef StringKeyedMap<int, std::less<StringPiece>, ValueLeakChecker>
+typedef StringKeyedMap<int, std::less<StringPiece>, KeyValuePairLeakChecker>
     LeakCheckedMap;
 
 using LeakCheckedUnorderedSet = BasicStringKeyedUnorderedSet<

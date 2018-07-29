@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ void expectOK(ssize_t r) {
   int savedErrno = errno;
   EXPECT_LE(0, r) << ": errno=" << errnoStr(savedErrno);
 }
-}  // namespace
+} // namespace
 
 TEST(File, Simple) {
   // Open a file, ensure it's indeed open for reading
@@ -118,21 +118,21 @@ TEST(File, Truthy) {
   if (temp) {
     ;
   } else {
-    EXPECT_FALSE(true);
+    ADD_FAILURE();
   }
 
   if (File file = File::temporary()) {
     ;
   } else {
-    EXPECT_FALSE(true);
+    ADD_FAILURE();
   }
 
   EXPECT_FALSE(bool(File()));
   if (File()) {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   }
   if (File notOpened = File()) {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
   }
 }
 

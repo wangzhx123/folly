@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,12 +27,13 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <functional>
-#include <boost/multi_index_container.hpp>
+
 #include <boost/multi_index/indexed_by.hpp>
-#include <boost/multi_index/ordered_index.hpp>
 #include <boost/multi_index/member.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index_container.hpp>
 
 namespace folly {
 
@@ -125,4 +126,4 @@ class TimeoutQueue {
   Id nextId_;
 };
 
-}  // namespace folly
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,14 @@
 #include <folly/Demangle.h>
 
 #include <algorithm>
-#include <string.h>
+#include <cstring>
 
-#include <folly/Malloc.h>
 #include <folly/portability/Config.h>
 
 #if FOLLY_HAVE_CPLUS_DEMANGLE_V3_CALLBACK
-# include <cxxabi.h>
+#include <cxxabi.h>
 
 // From libiberty
-//
-// TODO(tudorb): Detect this with autoconf for the open-source version.
 //
 // __attribute__((__weak__)) doesn't work, because cplus_demangle_v3_callback
 // is exported by an object file in libiberty.a, and the ELF spec says
@@ -102,7 +99,7 @@ void demangleCallback(const char* str, size_t size, void* p) {
   buf->total += size;
 }
 
-}  // namespace
+} // namespace
 
 size_t demangle(const char* name, char* out, size_t outSize) {
 #ifdef FOLLY_DEMANGLE_MAX_SYMBOL_SIZE
@@ -159,4 +156,4 @@ size_t strlcpy(char* dest, const char* const src, size_t size) {
   return len;
 }
 
-} // folly
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 
 #include <folly/Uri.h>
 
-#include <ctype.h>
+#include <algorithm>
+#include <cctype>
+
 #include <boost/regex.hpp>
 
 namespace folly {
@@ -24,18 +26,11 @@ namespace folly {
 namespace {
 
 std::string submatch(const boost::cmatch& m, int idx) {
-  auto& sub = m[idx];
+  const auto& sub = m[idx];
   return std::string(sub.first, sub.second);
 }
 
-template <class String>
-void toLower(String& s) {
-  for (auto& c : s) {
-    c = char(tolower(c));
-  }
-}
-
-}  // namespace
+} // namespace
 
 Uri::Uri(StringPiece str) : hasAuthority_(false), port_(0) {
   static const boost::regex uriRegex(
@@ -51,7 +46,7 @@ Uri::Uri(StringPiece str) : hasAuthority_(false), port_(0) {
   }
 
   scheme_ = submatch(match, 1);
-  toLower(scheme_);
+  std::transform(scheme_.begin(), scheme_.end(), scheme_.begin(), ::tolower);
 
   StringPiece authorityAndPath(match[2].first, match[2].second);
   boost::cmatch authorityAndPathMatch;
@@ -69,7 +64,7 @@ Uri::Uri(StringPiece str) : hasAuthority_(false), port_(0) {
                                        // dotted-IPv4, or named host)
         "(?::(\\d*))?");               // port
 
-    auto authority = authorityAndPathMatch[1];
+    const auto authority = authorityAndPathMatch[1];
     boost::cmatch authorityMatch;
     if (!boost::regex_match(authority.first,
                             authority.second,
@@ -141,10 +136,10 @@ const std::vector<std::pair<std::string, std::string>>& Uri::getQueryParams() {
         "([^=&]*)" /*parameter value*/
         "(?=(&|$))" /*forward reference, next should be end of query or
                       start of next parameter*/);
-    boost::cregex_iterator paramBeginItr(
+    const boost::cregex_iterator paramBeginItr(
         query_.data(), query_.data() + query_.size(), queryParamRegex);
     boost::cregex_iterator paramEndItr;
-    for (auto itr = paramBeginItr; itr != paramEndItr; itr++) {
+    for (auto itr = paramBeginItr; itr != paramEndItr; ++itr) {
       if (itr->length(2) == 0) {
         // key is empty, ignore it
         continue;
@@ -158,4 +153,4 @@ const std::vector<std::pair<std::string, std::string>>& Uri::getQueryParams() {
   return queryParams_;
 }
 
-}  // namespace folly
+} // namespace folly

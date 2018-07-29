@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,28 +16,23 @@
 
 #pragma once
 
-// This needs to be above semaphore.h due to the windows
-// libevent implementation needing mode_t to be defined,
-// but defining it differently than our portability
-// headers do.
-#include <folly/portability/SysTypes.h>
-
 #include <assert.h>
 #include <boost/noncopyable.hpp>
 #include <errno.h>
 #include <glog/logging.h>
-#include <semaphore.h>
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <unordered_set>
 #include <vector>
 
 #include <folly/ScopeGuard.h>
-#include <folly/detail/AtomicUtils.h>
-#include <folly/detail/CacheLocality.h>
+#include <folly/concurrency/CacheLocality.h>
 #include <folly/detail/Futex.h>
+#include <folly/portability/Semaphore.h>
+#include <folly/synchronization/detail/AtomicUtils.h>
 
 namespace folly {
 namespace test {
@@ -188,6 +183,12 @@ class DeterministicSchedule : boost::noncopyable {
   /** Clears the function set by setAuxChk */
   static void clearAuxChk();
 
+  /** Remove the current thread's semaphore from sems_ */
+  static sem_t* descheduleCurrentThread();
+
+  /** Add sem back into sems_ */
+  static void reschedule(sem_t* sem);
+
  private:
   static FOLLY_TLS sem_t* tls_sem;
   static FOLLY_TLS DeterministicSchedule* tls_sched;
@@ -198,6 +199,7 @@ class DeterministicSchedule : boost::noncopyable {
   std::function<size_t(size_t)> scheduler_;
   std::vector<sem_t*> sems_;
   std::unordered_set<std::thread::id> active_;
+  std::unordered_map<std::thread::id, sem_t*> joins_;
   unsigned nextThreadId_;
   /* step_ keeps count of shared accesses that correspond to user
    * synchronization steps (atomic accesses for now).
@@ -236,7 +238,7 @@ struct DeterministicAtomic {
       T v1,
       std::memory_order mo = std::memory_order_seq_cst) noexcept {
     return compare_exchange_strong(
-        v0, v1, mo, detail::default_failure_memory_order(mo));
+        v0, v1, mo, ::folly::detail::default_failure_memory_order(mo));
   }
   bool compare_exchange_strong(
       T& v0,
@@ -258,7 +260,7 @@ struct DeterministicAtomic {
       T v1,
       std::memory_order mo = std::memory_order_seq_cst) noexcept {
     return compare_exchange_weak(
-        v0, v1, mo, detail::default_failure_memory_order(mo));
+        v0, v1, mo, ::folly::detail::default_failure_memory_order(mo));
   }
   bool compare_exchange_weak(
       T& v0,
@@ -459,6 +461,7 @@ struct DeterministicAtomic {
  */
 struct DeterministicMutex {
   std::mutex m;
+  std::queue<sem_t*> waiters_;
 
   DeterministicMutex() = default;
   ~DeterministicMutex() = default;
@@ -467,12 +470,17 @@ struct DeterministicMutex {
 
   void lock() {
     FOLLY_TEST_DSCHED_VLOG(this << ".lock()");
-    while (!try_lock()) {
-      // Not calling m.lock() in order to avoid deadlock when the
-      // mutex m is held by another thread. The deadlock would be
-      // between the call to m.lock() and the lock holder's wait on
-      // its own tls_sem scheduling semaphore.
+    DeterministicSchedule::beforeSharedAccess();
+    while (!m.try_lock()) {
+      sem_t* sem = DeterministicSchedule::descheduleCurrentThread();
+      if (sem) {
+        waiters_.push(sem);
+      }
+      DeterministicSchedule::afterSharedAccess();
+      // Wait to be scheduled by unlock
+      DeterministicSchedule::beforeSharedAccess();
     }
+    DeterministicSchedule::afterSharedAccess();
   }
 
   bool try_lock() {
@@ -486,10 +494,17 @@ struct DeterministicMutex {
   void unlock() {
     FOLLY_TEST_DSCHED_VLOG(this << ".unlock()");
     m.unlock();
+    DeterministicSchedule::beforeSharedAccess();
+    if (!waiters_.empty()) {
+      sem_t* sem = waiters_.front();
+      DeterministicSchedule::reschedule(sem);
+      waiters_.pop();
+    }
+    DeterministicSchedule::afterSharedAccess();
   }
 };
-}
-} // namespace folly::test
+} // namespace test
+} // namespace folly
 
 /* Specialization declarations */
 
@@ -502,11 +517,12 @@ int Futex<test::DeterministicAtomic>::futexWake(int count, uint32_t wakeMask);
 template <>
 FutexResult Futex<test::DeterministicAtomic>::futexWaitImpl(
     uint32_t expected,
-    std::chrono::time_point<std::chrono::system_clock>* absSystemTime,
-    std::chrono::time_point<std::chrono::steady_clock>* absSteadyTime,
+    std::chrono::system_clock::time_point const* absSystemTime,
+    std::chrono::steady_clock::time_point const* absSteadyTime,
     uint32_t waitMask);
+} // namespace detail
 
 template <>
 Getcpu::Func AccessSpreader<test::DeterministicAtomic>::pickGetcpuFunc();
-}
-} // namespace folly::detail
+
+} // namespace folly

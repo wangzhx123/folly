@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,8 @@
 // Including ntdef.h requires building as a driver, but all we want
 // is a status code, but we need NTSTATUS defined for that. Luckily
 // bcrypt.h also defines NTSTATUS, so we'll use that one instead.
-#include <bcrypt.h>
-#include <ntstatus.h>
+#include <bcrypt.h> // @manual
+#include <ntstatus.h> // @manual
 
 // Generic wrapper for the p* family of functions.
 template <class F, class... Args>
@@ -219,7 +219,7 @@ ssize_t read(int fh, void* buf, size_t count) {
       return r;
     }
   }
-  auto r = _read(fh, buf, unsigned int(count));
+  auto r = _read(fh, buf, static_cast<unsigned int>(count));
   if (r == -1 && GetLastError() == ERROR_NO_DATA) {
     // This only happens if the file was non-blocking and
     // no data was present. We have to translate the error
@@ -312,7 +312,7 @@ ssize_t write(int fh, void const* buf, size_t count) {
       return r;
     }
   }
-  auto r = _write(fh, buf, unsigned int(count));
+  auto r = _write(fh, buf, static_cast<unsigned int>(count));
   if ((r > 0 && size_t(r) != count) || (r == -1 && errno == ENOSPC)) {
     // Writing to a pipe with a full buffer doesn't generate
     // any error type, unless it caused us to write exactly 0

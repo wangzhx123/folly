@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,20 @@
  * limitations under the License.
  */
 
-#include <folly/futures/Future.h>
-#include <folly/futures/InlineExecutor.h>
-#include <folly/futures/ManualExecutor.h>
-#include <folly/futures/DrivableExecutor.h>
-#include <folly/Baton.h>
-#include <folly/MPMCQueue.h>
-#include <folly/portability/GTest.h>
-
 #include <thread>
+
+#include <folly/MPMCQueue.h>
+#include <folly/executors/DrivableExecutor.h>
+#include <folly/executors/InlineExecutor.h>
+#include <folly/executors/ManualExecutor.h>
+#include <folly/futures/Future.h>
+#include <folly/portability/GTest.h>
+#include <folly/synchronization/Baton.h>
 
 using namespace folly;
 
 struct ManualWaiter : public DrivableExecutor {
-  explicit ManualWaiter(std::shared_ptr<ManualExecutor> ex) : ex(ex) {}
+  explicit ManualWaiter(std::shared_ptr<ManualExecutor> ex_) : ex(ex_) {}
 
   void add(Func f) override {
     ex->add(std::move(f));
@@ -48,17 +48,18 @@ struct ViaFixture : public testing::Test {
     waiter(new ManualWaiter(westExecutor)),
     done(false)
   {
-    t = std::thread([=] {
+    th = std::thread([=] {
         ManualWaiter eastWaiter(eastExecutor);
-        while (!done)
+        while (!done) {
           eastWaiter.drive();
+        }
       });
   }
 
   ~ViaFixture() override {
     done = true;
     eastExecutor->add([=]() { });
-    t.join();
+    th.join();
   }
 
   void addAsync(int a, int b, std::function<void(int&&)>&& cob) {
@@ -72,7 +73,7 @@ struct ViaFixture : public testing::Test {
   std::shared_ptr<ManualWaiter> waiter;
   InlineExecutor inlineExecutor;
   std::atomic<bool> done;
-  std::thread t;
+  std::thread th;
 };
 
 TEST(Via, exceptionOnLaunch) {
@@ -185,7 +186,7 @@ TEST(Via, chain3) {
       [&]{ count++; return 3.14159; },
       [&](double) { count++; return std::string("hello"); },
       [&]{ count++; return makeFuture(42); });
-  EXPECT_EQ(42, f.get());
+  EXPECT_EQ(42, std::move(f).get());
   EXPECT_EQ(3, count);
 }
 
@@ -399,6 +400,13 @@ TEST(Via, getVia) {
   }
 }
 
+TEST(Via, SimpleTimedGetVia) {
+  TimedDrivableExecutor e2;
+  Promise<folly::Unit> p;
+  auto f = p.getFuture();
+  EXPECT_THROW(f.getVia(&e2, std::chrono::seconds(1)), FutureTimeout);
+}
+
 TEST(Via, getTryVia) {
   {
     // non-void
@@ -423,6 +431,13 @@ TEST(Via, getTryVia) {
     EXPECT_EQ(23, f.getTryVia(&x).value());
     EXPECT_FALSE(x.ran);
   }
+}
+
+TEST(Via, SimpleTimedGetTryVia) {
+  TimedDrivableExecutor e2;
+  Promise<folly::Unit> p;
+  auto f = p.getFuture();
+  EXPECT_THROW(f.getTryVia(&e2, std::chrono::seconds(1)), FutureTimeout);
 }
 
 TEST(Via, waitVia) {
@@ -466,7 +481,9 @@ TEST(Via, viaRaces) {
     p.setValue();
   });
 
-  while (!done) x.run();
+  while (!done) {
+    x.run();
+  }
   t1.join();
   t2.join();
 }
@@ -483,9 +500,10 @@ TEST(Via, viaDummyExecutorFutureSetValueFirst) {
   auto future = makeFuture().via(&x).then(
       [c = std::move(captured_promise)] { return 42; });
 
-  EXPECT_THROW(future.get(std::chrono::seconds(5)), BrokenPromise);
+  EXPECT_THROW(std::move(future).get(std::chrono::seconds(5)), BrokenPromise);
   EXPECT_THROW(
-      captured_promise_future.get(std::chrono::seconds(5)), BrokenPromise);
+      std::move(captured_promise_future).get(std::chrono::seconds(5)),
+      BrokenPromise);
 }
 
 TEST(Via, viaDummyExecutorFutureSetCallbackFirst) {
@@ -502,9 +520,10 @@ TEST(Via, viaDummyExecutorFutureSetCallbackFirst) {
       [c = std::move(captured_promise)] { return 42; });
   trigger.setValue();
 
-  EXPECT_THROW(future.get(std::chrono::seconds(5)), BrokenPromise);
+  EXPECT_THROW(std::move(future).get(std::chrono::seconds(5)), BrokenPromise);
   EXPECT_THROW(
-      captured_promise_future.get(std::chrono::seconds(5)), BrokenPromise);
+      std::move(captured_promise_future).get(std::chrono::seconds(5)),
+      BrokenPromise);
 }
 
 TEST(Via, viaExecutorDiscardsTaskFutureSetValueFirst) {
@@ -521,11 +540,13 @@ TEST(Via, viaExecutorDiscardsTaskFutureSetValueFirst) {
     ManualExecutor x;
     future = makeFuture().via(&x).then(
         [c = std::move(captured_promise)] { return 42; });
+    x.clear();
   }
 
-  EXPECT_THROW(future->get(std::chrono::seconds(5)), BrokenPromise);
+  EXPECT_THROW(std::move(*future).get(std::chrono::seconds(5)), BrokenPromise);
   EXPECT_THROW(
-      captured_promise_future.get(std::chrono::seconds(5)), BrokenPromise);
+      std::move(captured_promise_future).get(std::chrono::seconds(5)),
+      BrokenPromise);
 }
 
 TEST(Via, viaExecutorDiscardsTaskFutureSetCallbackFirst) {
@@ -544,11 +565,13 @@ TEST(Via, viaExecutorDiscardsTaskFutureSetCallbackFirst) {
     future = trigger.getFuture().via(&x).then(
         [c = std::move(captured_promise)] { return 42; });
     trigger.setValue();
+    x.clear();
   }
 
-  EXPECT_THROW(future->get(std::chrono::seconds(5)), BrokenPromise);
+  EXPECT_THROW(std::move(*future).get(std::chrono::seconds(5)), BrokenPromise);
   EXPECT_THROW(
-      captured_promise_future.get(std::chrono::seconds(5)), BrokenPromise);
+      std::move(captured_promise_future).get(std::chrono::seconds(5)),
+      BrokenPromise);
 }
 
 TEST(ViaFunc, liftsVoid) {

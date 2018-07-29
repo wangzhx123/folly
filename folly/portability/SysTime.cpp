@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,8 @@
 
 #include <cstdint>
 
-#include <Windows.h>
-
 extern "C" {
-int gettimeofday(timeval* tv, timezone*) {
+int gettimeofday(timeval* tv, struct timezone*) {
   constexpr auto posixWinFtOffset = 116444736000000000ULL;
 
   if (tv) {

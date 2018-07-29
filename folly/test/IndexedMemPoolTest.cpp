@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,12 @@
 #include <folly/IndexedMemPool.h>
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
+#include <folly/portability/Semaphore.h>
 #include <folly/portability/Unistd.h>
 #include <folly/test/DeterministicSchedule.h>
 
 #include <string>
 #include <thread>
-#include <semaphore.h>
 
 using namespace folly;
 using namespace folly::test;
@@ -280,8 +280,9 @@ TEST(IndexedMemPool, construction_destruction) {
     for (auto i = 0; i < nthreads; ++i) {
       thr[i] = std::thread([&]() {
         started.fetch_add(1);
-        while (!start.load())
+        while (!start.load()) {
           ;
+        }
         for (auto j = 0; j < count; ++j) {
           uint32_t idx = pool.allocIndex();
           if (idx != 0) {
@@ -291,8 +292,9 @@ TEST(IndexedMemPool, construction_destruction) {
       });
     }
 
-    while (started.load() < nthreads)
+    while (started.load() < nthreads) {
       ;
+    }
     start.store(true);
 
     for (auto& t : thr) {
@@ -357,7 +359,7 @@ void testTraits(TraitsTestPool& pool) {
 
   elem = nullptr;
   EXPECT_CALL(traits, onRecycle(_)).WillOnce(Invoke([&](std::string* s) {
-    EXPECT_TRUE(pool.isAllocated(pool.locateElem(s)));
+    EXPECT_FALSE(pool.isAllocated(pool.locateElem(s)));
     elem = s;
   }));
   pool.recycleIndex(pool.locateElem(ptr));

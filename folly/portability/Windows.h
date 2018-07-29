@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,12 +29,12 @@
 #ifndef __STDC__
 /* nolint */
 #define __STDC__ 1
-#include <direct.h> // nolint
-#include <io.h> // nolint
+#include <direct.h> // @manual nolint
+#include <io.h> // @manual nolint
 #undef __STDC__
 #else
-#include <direct.h> // nolint
-#include <io.h> // nolint
+#include <direct.h> // @manual nolint
+#include <io.h> // @manual nolint
 #endif
 
 #if defined(min) || defined(max)
@@ -49,8 +49,8 @@
 #define NOMINMAX 1
 #endif
 
-#include <WinSock2.h>
-#include <Windows.h>
+#include <WinSock2.h> // @manual
+#include <Windows.h> // @manual
 
 #ifdef CAL_GREGORIAN
 #undef CAL_GREGORIAN

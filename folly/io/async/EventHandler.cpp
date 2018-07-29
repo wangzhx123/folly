@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-present Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 
 #include <folly/io/async/EventHandler.h>
+#include <folly/String.h>
 #include <folly/io/async/EventBase.h>
 
 #include <assert.h>
@@ -90,7 +91,7 @@ bool EventHandler::registerImpl(uint16_t events, bool internal) {
   // more space).
   if (event_add(&event_, nullptr) < 0) {
     LOG(ERROR) << "EventBase: failed to register event handler for fd "
-               << event_.ev_fd << ": " << strerror(errno);
+               << event_.ev_fd << ": " << errnoStr(errno);
     // Call event_del() to make sure the event is completely uninstalled
     event_del(&event_);
     return false;
@@ -110,7 +111,7 @@ void EventHandler::attachEventBase(EventBase* eventBase) {
   assert(event_.ev_base == nullptr);
   assert(!isHandlerRegistered());
   // This must be invoked from the EventBase's thread
-  assert(eventBase->isInEventBaseThread());
+  eventBase->dcheckIsInEventBaseThread();
 
   setEventBase(eventBase);
 }
@@ -178,4 +179,4 @@ bool EventHandler::isPending() const {
   return false;
 }
 
-} // folly
+} // namespace folly

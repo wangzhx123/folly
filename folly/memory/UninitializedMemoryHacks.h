@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ namespace {
 // allowing the resulting methods to be inline-able.  If you think that
 // seems hacky keep reading...
 struct FollyMemoryDetailTranslationUnitTag {};
-} // anon namespace
+} // namespace
 namespace folly {
 namespace detail {
 void unsafeStringSetLargerSize(std::string& s, std::size_t n);
@@ -46,8 +46,14 @@ void unsafeVectorSetLargerSize(std::vector<T>& v, std::size_t n);
  * IMPORTANT: These functions can be unsafe if used improperly.  If you
  * don't write to an element with index >= oldSize and < newSize, reading
  * the element can expose arbitrary memory contents to the world, including
- * the contents of old strings.  Use ASAN in your tests, and pay extra
- * attention to failure paths.
+ * the contents of old strings.  If you're lucky you'll get a segfault,
+ * because the kernel is only required to fault in new pages on write
+ * access.  MSAN should be able to catch problems in the common case that
+ * the string or vector wasn't previously shrunk.
+ *
+ * Pay extra attention to your failure paths.  For example, if you try
+ * to read directly into a caller-provided string, make sure to clear
+ * the string when you get an I/O error.
  *
  * You should only use this if you have profiling data from production
  * that shows that this is not a premature optimization.  This code is
@@ -58,14 +64,15 @@ void unsafeVectorSetLargerSize(std::vector<T>& v, std::size_t n);
  *
  * NOTE: Just because .resize() shows up in your profile (probably
  * via one of the intrinsic memset implementations) doesn't mean that
- * these functions will make your program faster.  Most of the cost
- * of memset comes from cache misses, so avoiding the memset means
+ * these functions will make your program faster.  A lot of the cost
+ * of memset comes from cache misses, so avoiding the memset can mean
  * that the cache miss cost just gets pushed to the following code.
  * resizeWithoutInitialization can be a win when the contents are bigger
  * than a cache level, because the second access isn't free in that case.
- * It can also be a win if the final length of the string or vector isn't
- * actually known, so the suffix will be chopped off with a second call
- * to .resize().
+ * It can be a win when the memory is already cached, so touching it
+ * doesn't help later code.  It can also be a win if the final length
+ * of the string or vector isn't actually known, so the suffix will be
+ * chopped off with a second call to .resize().
  */
 
 /**
@@ -237,7 +244,7 @@ inline void unsafeStringSetLargerSize(std::string& s, std::size_t n) {
 }
 
 #else
-#warn "No implementation for resizeWithoutInitialization of std::string"
+#warning "No implementation for resizeWithoutInitialization of std::string"
 #endif
 
 // This machinery bridges template expansion and macro expansion
@@ -317,7 +324,7 @@ struct MakeUnsafeVectorSetLargerSize : std::vector<T> {
   FOLLY_DECLARE_VECTOR_RESIZE_WITHOUT_INIT_IMPL(TYPE)
 
 #else
-#warn "No implementation for resizeWithoutInitialization of std::vector"
+#warning "No implementation for resizeWithoutInitialization of std::vector"
 #endif
 
 } // namespace detail

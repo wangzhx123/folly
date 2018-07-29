@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+
 #include <folly/Portability.h>
 
 #ifdef _MSC_VER
@@ -213,4 +214,4 @@ class CpuId {
   uint32_t f7c_ = 0;
 };
 
-}  // namespace folly
+} // namespace folly

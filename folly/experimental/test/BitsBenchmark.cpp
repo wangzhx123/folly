@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include <atomic>
-#include <glog/logging.h>
-#include <random>
 #include <memory>
+#include <random>
+
+#include <glog/logging.h>
 
 #include <folly/Benchmark.h>
 #include <folly/experimental/Bits.h>
@@ -60,12 +62,12 @@ void benchmarkSet(size_t n, T) {
       folly::Bits<T>::test(reinterpret_cast<T *>(buffer.data()), 512));
 }
 
-BENCHMARK_NAMED_PARAM(benchmarkSet, u16, uint16_t());
-BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkSet, i16, int16_t());
-BENCHMARK_NAMED_PARAM(benchmarkSet, u32, uint32_t());
-BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkSet, i32, int32_t());
-BENCHMARK_NAMED_PARAM(benchmarkSet, u64, uint64_t());
-BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkSet, i64, int64_t());
+BENCHMARK_NAMED_PARAM(benchmarkSet, u16, uint16_t())
+BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkSet, i16, int16_t())
+BENCHMARK_NAMED_PARAM(benchmarkSet, u32, uint32_t())
+BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkSet, i32, int32_t())
+BENCHMARK_NAMED_PARAM(benchmarkSet, u64, uint64_t())
+BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkSet, i64, int64_t())
 
 BENCHMARK_DRAW_LINE();
 
@@ -83,12 +85,12 @@ void benchmarkGet(size_t n, T x) {
   folly::doNotOptimizeAway(x);
 }
 
-BENCHMARK_NAMED_PARAM(benchmarkGet, u16, uint16_t(0));
-BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkGet, i16, int16_t(0));
-BENCHMARK_NAMED_PARAM(benchmarkGet, u32, uint32_t(0));
-BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkGet, i32, int32_t(0));
-BENCHMARK_NAMED_PARAM(benchmarkGet, u64, uint64_t(0));
-BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkGet, i64, int64_t(0));
+BENCHMARK_NAMED_PARAM(benchmarkGet, u16, uint16_t(0))
+BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkGet, i16, int16_t(0))
+BENCHMARK_NAMED_PARAM(benchmarkGet, u32, uint32_t(0))
+BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkGet, i32, int32_t(0))
+BENCHMARK_NAMED_PARAM(benchmarkGet, u64, uint64_t(0))
+BENCHMARK_RELATIVE_NAMED_PARAM(benchmarkGet, i64, int64_t(0))
 
 #if 0
 ============================================================================

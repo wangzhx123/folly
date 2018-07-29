@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 
 #include <folly/Benchmark.h>
 #include <folly/CppAttributes.h>
-#include <folly/Foreach.h>
+#include <folly/container/Foreach.h>
 
 #include <array>
 #include <limits>
@@ -244,8 +244,8 @@ __int128 int128Neg[] = {
 };
 
 #endif
-}
-}
+} // namespace conv_bench_detail
+} // namespace folly
 
 using namespace folly::conv_bench_detail;
 
@@ -255,7 +255,7 @@ template <typename T>
 void checkArrayIndex(const T& array, size_t index) {
   DCHECK_LT(index, sizeof(array) / sizeof(array[0]));
 }
-}
+} // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // Benchmarks for ASCII to int conversion
@@ -511,8 +511,8 @@ char reallyShort[] = "meh";
 std::string stdString = "std::strings are very nice";
 float fValue = 1.2355f;
 double dValue = 345345345.435;
-}
-}
+} // namespace conv_bench_detail
+} // namespace folly
 
 BENCHMARK(preallocateTestNoFloat, n) {
   for (size_t i = 0; i < n; ++i) {
@@ -586,8 +586,8 @@ uint64_t u64s[] = {
     static_cast<uint64_t>(1) << 50,
     static_cast<uint64_t>(1) << 63,
 };
-}
-}
+} // namespace conv_bench_detail
+} // namespace folly
 
 BENCHMARK(preallocateTestInt8, n) {
   for (size_t i = 0; i < n; ++i) {
@@ -675,7 +675,7 @@ unsigned __int128 u128s[] = {
     static_cast<unsigned __int128>(1) << 100,
     static_cast<unsigned __int128>(1) << 127,
 };
-}
+} // namespace
 
 BENCHMARK(preallocateTestInt128, n) {
   for (size_t i = 0; i < n; ++i) {
@@ -718,11 +718,11 @@ static const StringVariadicToBM<std::string> stringVariadicToBM;
 static const StringIdenticalToBM<fbstring> fbstringIdenticalToBM;
 static const StringVariadicToBM<fbstring> fbstringVariadicToBM;
 
-#define DEFINE_BENCHMARK_GROUP(n)                 \
-  BENCHMARK_PARAM(u64ToAsciiClassicBM, n);        \
-  BENCHMARK_RELATIVE_PARAM(u64ToAsciiTableBM, n); \
-  BENCHMARK_RELATIVE_PARAM(u64ToAsciiFollyBM, n); \
-  BENCHMARK_DRAW_LINE();
+#define DEFINE_BENCHMARK_GROUP(n)                \
+  BENCHMARK_PARAM(u64ToAsciiClassicBM, n)        \
+  BENCHMARK_RELATIVE_PARAM(u64ToAsciiTableBM, n) \
+  BENCHMARK_RELATIVE_PARAM(u64ToAsciiFollyBM, n) \
+  BENCHMARK_DRAW_LINE()
 
 DEFINE_BENCHMARK_GROUP(1);
 DEFINE_BENCHMARK_GROUP(2);
@@ -747,12 +747,12 @@ DEFINE_BENCHMARK_GROUP(20);
 
 #undef DEFINE_BENCHMARK_GROUP
 
-#define DEFINE_BENCHMARK_GROUP(n)                          \
-  BENCHMARK_PARAM(u64ToStringClibMeasure, n);              \
-  BENCHMARK_RELATIVE_PARAM(u64ToStringFollyMeasure, n);    \
-  BENCHMARK_RELATIVE_PARAM(i64ToStringFollyMeasurePos, n); \
-  BENCHMARK_RELATIVE_PARAM(i64ToStringFollyMeasureNeg, n); \
-  BENCHMARK_DRAW_LINE();
+#define DEFINE_BENCHMARK_GROUP(n)                         \
+  BENCHMARK_PARAM(u64ToStringClibMeasure, n)              \
+  BENCHMARK_RELATIVE_PARAM(u64ToStringFollyMeasure, n)    \
+  BENCHMARK_RELATIVE_PARAM(i64ToStringFollyMeasurePos, n) \
+  BENCHMARK_RELATIVE_PARAM(i64ToStringFollyMeasureNeg, n) \
+  BENCHMARK_DRAW_LINE()
 
 DEFINE_BENCHMARK_GROUP(1);
 DEFINE_BENCHMARK_GROUP(2);
@@ -775,8 +775,8 @@ DEFINE_BENCHMARK_GROUP(18);
 DEFINE_BENCHMARK_GROUP(19);
 
 // Only for u64
-BENCHMARK_PARAM(u64ToStringClibMeasure, 20);
-BENCHMARK_RELATIVE_PARAM(u64ToStringFollyMeasure, 20);
+BENCHMARK_PARAM(u64ToStringClibMeasure, 20)
+BENCHMARK_RELATIVE_PARAM(u64ToStringFollyMeasure, 20)
 BENCHMARK_DRAW_LINE();
 
 #undef DEFINE_BENCHMARK_GROUP
@@ -804,11 +804,11 @@ void i128ToStringFollyMeasureNeg(unsigned int n, size_t index) {
   }
 }
 
-#define DEFINE_BENCHMARK_GROUP(n)                           \
-  BENCHMARK_PARAM(u128ToStringFollyMeasure, n);             \
-  BENCHMARK_RELATIVE_PARAM(i128ToStringFollyMeasurePos, n); \
-  BENCHMARK_RELATIVE_PARAM(i128ToStringFollyMeasureNeg, n); \
-  BENCHMARK_DRAW_LINE();
+#define DEFINE_BENCHMARK_GROUP(n)                          \
+  BENCHMARK_PARAM(u128ToStringFollyMeasure, n)             \
+  BENCHMARK_RELATIVE_PARAM(i128ToStringFollyMeasurePos, n) \
+  BENCHMARK_RELATIVE_PARAM(i128ToStringFollyMeasureNeg, n) \
+  BENCHMARK_DRAW_LINE()
 
 DEFINE_BENCHMARK_GROUP(1);
 DEFINE_BENCHMARK_GROUP(2);
@@ -856,12 +856,12 @@ BENCHMARK_DRAW_LINE();
 
 #endif
 
-#define DEFINE_BENCHMARK_GROUP(n)                      \
-  BENCHMARK_PARAM(clibAtoiMeasure, n);                 \
-  BENCHMARK_RELATIVE_PARAM(lexicalCastMeasure, n);     \
-  BENCHMARK_RELATIVE_PARAM(handwrittenAtoiMeasure, n); \
-  BENCHMARK_RELATIVE_PARAM(follyAtoiMeasure, n);       \
-  BENCHMARK_DRAW_LINE();
+#define DEFINE_BENCHMARK_GROUP(n)                     \
+  BENCHMARK_PARAM(clibAtoiMeasure, n)                 \
+  BENCHMARK_RELATIVE_PARAM(lexicalCastMeasure, n)     \
+  BENCHMARK_RELATIVE_PARAM(handwrittenAtoiMeasure, n) \
+  BENCHMARK_RELATIVE_PARAM(follyAtoiMeasure, n)       \
+  BENCHMARK_DRAW_LINE()
 
 DEFINE_BENCHMARK_GROUP(1);
 DEFINE_BENCHMARK_GROUP(2);
@@ -885,10 +885,10 @@ DEFINE_BENCHMARK_GROUP(19);
 
 #undef DEFINE_BENCHMARK_GROUP
 
-#define DEFINE_BENCHMARK_GROUP(T, n)             \
-  BENCHMARK_PARAM(T##VariadicToBM, n);           \
-  BENCHMARK_RELATIVE_PARAM(T##IdenticalToBM, n); \
-  BENCHMARK_DRAW_LINE();
+#define DEFINE_BENCHMARK_GROUP(T, n)            \
+  BENCHMARK_PARAM(T##VariadicToBM, n)           \
+  BENCHMARK_RELATIVE_PARAM(T##IdenticalToBM, n) \
+  BENCHMARK_DRAW_LINE()
 
 DEFINE_BENCHMARK_GROUP(string, 32);
 DEFINE_BENCHMARK_GROUP(string, 1024);
@@ -1012,8 +1012,8 @@ std::array<double, 4> double2FloatGood{{1.0, 1.25, 2.5, 1000.0}};
 std::array<double, 4> double2FloatBad{{1e100, 1e101, 1e102, 1e103}};
 std::array<double, 4> double2IntGood{{1.0, 10.0, 100.0, 1000.0}};
 std::array<double, 4> double2IntBad{{1e100, 1.25, 2.5, 100.00001}};
-}
-}
+} // namespace conv_bench_detail
+} // namespace folly
 
 #define STRING_TO_TYPE_BENCHMARK(type, name, pass, fail) \
   BENCHMARK(stringTo##name##Classic, n) {                \

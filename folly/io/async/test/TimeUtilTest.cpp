@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-present Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,8 +36,8 @@ namespace chrono {
 static inline void PrintTo(nanoseconds ns, ::std::ostream* os) {
   *os << ns.count() << "ns";
 }
-}
-}
+} // namespace chrono
+} // namespace std
 
 #ifdef __linux__
 void runThread(nanoseconds duration, nanoseconds* timeWaiting) {

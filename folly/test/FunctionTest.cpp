@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -175,6 +175,25 @@ static_assert(
         Function<short(int) const>>::value,
     "");
 
+static_assert(
+    !std::is_constructible<Function<int const&()>, int (*)()>::value,
+    "");
+
+static_assert(
+    !std::is_constructible<Function<int const&() const>, int (*)()>::value,
+    "");
+
+#if FOLLY_HAVE_NOEXCEPT_FUNCTION_TYPE
+static_assert(
+    !std::is_constructible<Function<int const&() noexcept>, int (*)()>::value,
+    "");
+
+static_assert(
+    !std::is_constructible<Function<int const&() const noexcept>, int (*)()>::
+        value,
+    "");
+#endif
+
 // TEST =====================================================================
 // InvokeFunctor & InvokeReference
 
@@ -236,6 +255,12 @@ TEST(Function, Emptiness_T) {
   EXPECT_EQ(nullptr, h);
   EXPECT_FALSE(h);
   EXPECT_THROW(h(101), std::bad_function_call);
+
+  Function<int(int)> i{Function<int(int)>{}};
+  EXPECT_EQ(i, nullptr);
+  EXPECT_EQ(nullptr, i);
+  EXPECT_FALSE(i);
+  EXPECT_THROW(i(107), std::bad_function_call);
 }
 
 // TEST =====================================================================
@@ -584,7 +609,7 @@ TEST(Function, CaptureCopyMoveCount) {
   Function<size_t(void)> uf1 = std::move(lambda1);
 
   // Max copies: 0. Max copy+moves: 2.
-  EXPECT_LE(cmt.moveCount() + cmt.copyCount(), 2);
+  EXPECT_LE(cmt.moveCount() + cmt.copyCount(), 3);
   EXPECT_LE(cmt.copyCount(), 0);
 
   cmt.resetCounters();
@@ -596,7 +621,7 @@ TEST(Function, CaptureCopyMoveCount) {
   Function<size_t(void)> uf2 = lambda2;
 
   // Max copies: 1. Max copy+moves: 2.
-  EXPECT_LE(cmt.moveCount() + cmt.copyCount(), 2);
+  EXPECT_LE(cmt.moveCount() + cmt.copyCount(), 3);
   EXPECT_LE(cmt.copyCount(), 1);
 
   // Invoking Function must not make copies/moves of the callable
@@ -1094,4 +1119,8 @@ TEST(Function, CtorWithCopy) {
   auto ly = [y = Y()]{};
   EXPECT_TRUE(noexcept(Function<void()>(lx)));
   EXPECT_FALSE(noexcept(Function<void()>(ly)));
+}
+
+TEST(Function, Bug_T23346238) {
+  const Function<void()> nullfun;
 }

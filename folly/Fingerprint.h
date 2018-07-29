@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -99,8 +99,9 @@ class Fingerprint {
   Fingerprint() {
     // Use a non-zero starting value. We'll use (1 << (BITS-1))
     fp_[0] = 1ULL << 63;
-    for (int i = 1; i < size(); i++)
+    for (int i = 1; i < size(); i++) {
       fp_[i] = 0;
+    }
   }
 
   Fingerprint& update8(uint8_t v) {
@@ -284,4 +285,4 @@ inline uint64_t Fingerprint<128>::shlor64(uint64_t v) {
   return out;
 }
 
-}  // namespace folly
+} // namespace folly

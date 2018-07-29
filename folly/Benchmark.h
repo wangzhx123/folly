@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 #include <folly/Preprocessor.h> // for FB_ANONYMOUS_VARIABLE
 #include <folly/ScopeGuard.h>
 #include <folly/Traits.h>
+#include <folly/functional/Invoke.h>
 #include <folly/portability/GFlags.h>
 
 #include <cassert>
@@ -55,6 +56,19 @@ namespace detail {
 
 using TimeIterPair =
     std::pair<std::chrono::high_resolution_clock::duration, unsigned int>;
+using BenchmarkFun = std::function<detail::TimeIterPair(unsigned int)>;
+
+struct BenchmarkRegistration {
+  std::string file;
+  std::string name;
+  BenchmarkFun func;
+};
+
+struct BenchmarkResult {
+  std::string file;
+  std::string name;
+  double timeInNs;
+};
 
 /**
  * Adds a benchmark wrapped in a std::function. Only used
@@ -112,7 +126,7 @@ struct BenchmarkSuspender {
   }
 
   template <class F>
-  auto dismissing(F f) -> typename std::result_of<F()>::type {
+  auto dismissing(F f) -> invoke_result_t<F> {
     SCOPE_EXIT { rehire(); };
     dismiss();
     return f();
@@ -234,10 +248,10 @@ struct DoNotOptimizeAwayNeedsIndirect {
   // First two constraints ensure it can be an "r" operand.
   // std::is_pointer check is because callers seem to expect that
   // doNotOptimizeAway(&x) is equivalent to doNotOptimizeAway(x).
-  constexpr static bool value = !folly::IsTriviallyCopyable<Decayed>::value ||
+  constexpr static bool value = !folly::is_trivially_copyable<Decayed>::value ||
       sizeof(Decayed) > sizeof(long) || std::is_pointer<Decayed>::value;
 };
-} // detail namespace
+} // namespace detail
 
 template <typename T>
 auto doNotOptimizeAway(const T& datum) -> typename std::enable_if<
@@ -279,6 +293,20 @@ auto makeUnpredictable(T& datum) -> typename std::enable_if<
 }
 
 #endif
+
+struct dynamic;
+
+void benchmarkResultsToDynamic(
+    const std::vector<detail::BenchmarkResult>& data,
+    dynamic&);
+
+void benchmarkResultsFromDynamic(
+    const dynamic&,
+    std::vector<detail::BenchmarkResult>&);
+
+void printResultComparison(
+    const std::vector<detail::BenchmarkResult>& base,
+    const std::vector<detail::BenchmarkResult>& test);
 
 } // namespace folly
 
@@ -362,7 +390,7 @@ auto makeUnpredictable(T& datum) -> typename std::enable_if<
  * common for benchmarks that need a "problem size" in addition to
  * "number of iterations". Consider:
  *
- * void pushBack(uint n, size_t initialSize) {
+ * void pushBack(uint32_t n, size_t initialSize) {
  *   vector<int> v;
  *   BENCHMARK_SUSPEND {
  *     v.resize(initialSize);
@@ -398,7 +426,7 @@ auto makeUnpredictable(T& datum) -> typename std::enable_if<
  *
  * For example:
  *
- * void addValue(uint n, int64_t bucketSize, int64_t min, int64_t max) {
+ * void addValue(uint32_t n, int64_t bucketSize, int64_t min, int64_t max) {
  *   Histogram<int64_t> hist(bucketSize, min, max);
  *   int64_t num = min;
  *   FOR_EACH_RANGE (i, 0, n) {
@@ -520,10 +548,10 @@ auto makeUnpredictable(T& datum) -> typename std::enable_if<
 /**
  * Draws a line of dashes.
  */
-#define BENCHMARK_DRAW_LINE()                                             \
-  static bool FB_ANONYMOUS_VARIABLE(follyBenchmarkUnused) = (             \
-    ::folly::addBenchmark(__FILE__, "-", []() -> unsigned { return 0; }), \
-    true);
+#define BENCHMARK_DRAW_LINE()                                                \
+  static bool FB_ANONYMOUS_VARIABLE(follyBenchmarkUnused) =                  \
+      (::folly::addBenchmark(__FILE__, "-", []() -> unsigned { return 0; }), \
+       true)
 
 /**
  * Allows execution of code that doesn't count torward the benchmark's

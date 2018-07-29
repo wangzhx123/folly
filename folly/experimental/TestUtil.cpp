@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,11 @@
 
 #include <folly/experimental/TestUtil.h>
 
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
 #include <boost/regex.hpp>
+
 #include <folly/Exception.h>
 #include <folly/File.h>
 #include <folly/FileUtil.h>
@@ -28,7 +29,7 @@
 #include <folly/portability/Fcntl.h>
 
 #ifdef _WIN32
-#include <crtdbg.h>
+#include <crtdbg.h> // @manual
 #endif
 
 namespace folly {
@@ -49,7 +50,7 @@ fs::path generateUniquePath(fs::path path, StringPiece namePrefix) {
   return path;
 }
 
-}  // namespace
+} // namespace
 
 TemporaryFile::TemporaryFile(StringPiece namePrefix,
                              fs::path dir,
@@ -73,16 +74,23 @@ TemporaryFile::TemporaryFile(StringPiece namePrefix,
   }
 }
 
+void TemporaryFile::close() {
+  if (::close(fd_) == -1) {
+    PLOG(ERROR) << "close failed";
+  }
+  fd_ = -1;
+}
+
 const fs::path& TemporaryFile::path() const {
   CHECK(scope_ != Scope::UNLINK_IMMEDIATELY);
   DCHECK(!path_.empty());
   return path_;
 }
 
-TemporaryFile::~TemporaryFile() {
+void TemporaryFile::reset() {
   if (fd_ != -1 && closeOnDestruction_) {
-    if (close(fd_) == -1) {
-      PLOG(ERROR) << "close failed";
+    if (::close(fd_) == -1) {
+      PLOG(ERROR) << "close failed (fd = " << fd_ << "): ";
     }
   }
 
@@ -95,6 +103,10 @@ TemporaryFile::~TemporaryFile() {
       LOG(WARNING) << "unlink on destruction failed: " << ec;
     }
   }
+}
+
+TemporaryFile::~TemporaryFile() {
+  reset();
 }
 
 TemporaryDirectory::TemporaryDirectory(
@@ -117,14 +129,15 @@ TemporaryDirectory::~TemporaryDirectory() {
   }
 }
 
-ChangeToTempDir::ChangeToTempDir() : initialPath_(fs::current_path()) {
-  std::string p = dir_.path().string();
-  ::chdir(p.c_str());
+ChangeToTempDir::ChangeToTempDir() {
+  orig_ = fs::current_path();
+  fs::current_path(path());
 }
 
 ChangeToTempDir::~ChangeToTempDir() {
-  std::string p = initialPath_.string();
-  ::chdir(p.c_str());
+  if (!orig_.empty()) {
+    fs::current_path(orig_);
+  }
 }
 
 namespace detail {
@@ -167,7 +180,7 @@ bool hasNoPCREPatternMatch(StringPiece pattern, StringPiece target) {
   return !hasPCREPatternMatch(pattern, target);
 }
 
-}  // namespace detail
+} // namespace detail
 
 CaptureFD::CaptureFD(int fd, ChunkCob chunk_cob)
     : chunkCob_(std::move(chunk_cob)), fd_(fd), readOffset_(0) {
@@ -214,5 +227,5 @@ std::string CaptureFD::readIncremental() {
   return std::string(buf.get(), size);
 }
 
-}  // namespace test
-}  // namespace folly
+} // namespace test
+} // namespace folly

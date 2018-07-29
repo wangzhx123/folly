@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 #include <glog/logging.h>
 
 #include <iosfwd>
+#include <memory>
 #include <random>
 #include <set>
 #include <vector>
@@ -475,7 +476,35 @@ TEST(Gen, Until) {
       | as<vector<int>>();
     EXPECT_EQ(expected, actual);
   }
-  */
+    */
+}
+
+TEST(Gen, Visit) {
+  auto increment = [](int& i) { ++i; };
+  auto clone = map([](int i) { return i; });
+  { // apply()
+    auto expected = 10;
+    auto actual = seq(0) | clone | visit(increment) | take(4) | sum;
+    EXPECT_EQ(expected, actual);
+  }
+  { // foreach()
+    auto expected = 10;
+    auto actual = seq(0, 3) | clone | visit(increment) | sum;
+    EXPECT_EQ(expected, actual);
+  }
+  { // tee-like
+    std::vector<int> x2, x4;
+    std::vector<int> expected2{0, 1, 4, 9};
+    std::vector<int> expected4{0, 1, 16, 81};
+
+    auto tee = [](std::vector<int>& container) {
+      return visit([&](int value) { container.push_back(value); });
+    };
+    EXPECT_EQ(
+        98, seq(0, 3) | map(square) | tee(x2) | map(square) | tee(x4) | sum);
+    EXPECT_EQ(expected2, x2);
+    EXPECT_EQ(expected4, x4);
+  }
 }
 
 TEST(Gen, Composed) {
@@ -576,13 +605,13 @@ TEST(Gen, DistinctBy) {   //  0  1  4  9  6  5  6  9  4  1  0
 
 TEST(Gen, DistinctMove) {   //  0  1  4  9  6  5  6  9  4  1  0
   auto expected = vector<int>{0, 1, 2, 3, 4, 5};
-  auto actual =
-      seq(0, 100)
-    | mapped([](int i) { return std::unique_ptr<int>(new int(i)); })
+  auto actual = seq(0, 100) |
+      mapped([](int i) { return std::make_unique<int>(i); })
       // see comment below about selector parameters for Distinct
-    | distinctBy([](const std::unique_ptr<int>& pi) { return *pi * *pi % 10; })
-    | mapped([](std::unique_ptr<int> pi) { return *pi; })
-    | as<vector>();
+      | distinctBy([](const std::unique_ptr<int>& pi) {
+                  return *pi * *pi % 10;
+                }) |
+      mapped([](std::unique_ptr<int> pi) { return *pi; }) | as<vector>();
 
   // NOTE(tjackson): the following line intentionally doesn't work:
   //  | distinctBy([](std::unique_ptr<int> pi) { return *pi * *pi % 10; })
@@ -664,7 +693,7 @@ TEST(Gen, FromRValue) {
     // reference of a std::vector when it is used as the 'other' for an rvalue
     // constructor.  Use fbvector because we're sure its size will be zero in
     // this case.
-    fbvector<int> v({1,2,3,4});
+    fbvector<int> v({1, 2, 3, 4});
     auto q1 = from(v);
     EXPECT_EQ(v.size(), 4);  // ensure that the lvalue version was called!
     auto expected = 1 * 2 * 3 * 4;
@@ -676,11 +705,11 @@ TEST(Gen, FromRValue) {
   }
   {
     auto expected = 7;
-    auto q = from([] {return vector<int>({3,7,5}); }());
+    auto q = from([] { return vector<int>({3, 7, 5}); }());
     EXPECT_EQ(expected, q | max);
   }
   {
-    for (auto size: {5, 1024, 16384, 1<<20}) {
+    for (auto size : {5, 1024, 16384, 1 << 20}) {
       auto q1 = from(vector<int>(size, 2));
       auto q2 = from(vector<int>(size, 3));
       // If the rvalue specialization is broken/gone, then the compiler will
@@ -849,10 +878,12 @@ TEST(Gen, MapYielders) {
            | map([](int n) {
                return GENERATOR(int) {
                  int i;
-                 for (i = 1; i < n; ++i)
+                 for (i = 1; i < n; ++i) {
                    yield(i);
-                 for (; i >= 1; --i)
+                 }
+                 for (; i >= 1; --i) {
                    yield(i);
+                 }
                };
              })
            | concat;
@@ -887,11 +918,10 @@ TEST(Gen, CustomType) {
 }
 
 TEST(Gen, NoNeedlessCopies) {
-  auto gen = seq(1, 5)
-           | map([](int x) { return unique_ptr<int>(new int(x)); })
-           | map([](unique_ptr<int> p) { return p; })
-           | map([](unique_ptr<int>&& p) { return std::move(p); })
-           | map([](const unique_ptr<int>& p) { return *p; });
+  auto gen = seq(1, 5) | map([](int x) { return std::make_unique<int>(x); }) |
+      map([](unique_ptr<int> p) { return p; }) |
+      map([](unique_ptr<int>&& p) { return std::move(p); }) |
+      map([](const unique_ptr<int>& p) { return *p; });
   EXPECT_EQ(15, gen | sum);
   EXPECT_EQ(6, gen | take(3) | sum);
 }
@@ -1048,8 +1078,8 @@ TEST(Gen, Cycle) {
               s | cycle | take(4) | as<vector>());
   }
   {
-    int count = 3;
-    int* pcount = &count;
+    int c = 3;
+    int* pcount = &c;
     auto countdown = GENERATOR(int) {
       ASSERT_GE(*pcount, 0)
         << "Cycle should have stopped when it didnt' get values!";
@@ -1138,7 +1168,7 @@ bool operator==(const DereferenceWrapper& a, const DereferenceWrapper& b) {
 void PrintTo(const DereferenceWrapper& a, std::ostream* o) {
   *o << "Wrapper{\"" << cEscape<string>(a.data) << "\"}";
 }
-}
+} // namespace
 
 TEST(Gen, DereferenceWithLValueRef) {
   auto original = vector<DereferenceWrapper>{{"foo"}, {"bar"}};
@@ -1195,6 +1225,21 @@ TEST(Gen, Guard) {
                runtime_error);
 }
 
+TEST(Gen, eachTryTo) {
+  using std::runtime_error;
+  EXPECT_EQ(4,
+            from({"1", "a", "3"})
+            | eachTryTo<int>()
+            | dereference
+            | sum);
+  EXPECT_EQ(1,
+            from({"1", "a", "3"})
+            | eachTryTo<int>()
+            | takeWhile()
+            | dereference
+            | sum);
+}
+
 TEST(Gen, Batch) {
   EXPECT_EQ((vector<vector<int>> { {1} }),
             seq(1, 1) | batch(5) | as<vector>());
@@ -1206,19 +1251,42 @@ TEST(Gen, Batch) {
 
 TEST(Gen, BatchMove) {
   auto expected = vector<vector<int>>{ {0, 1}, {2, 3}, {4} };
-  auto actual =
-      seq(0, 4)
-    | mapped([](int i) { return std::unique_ptr<int>(new int(i)); })
-    | batch(2)
-    | mapped([](std::vector<std::unique_ptr<int>>& pVector) {
-        std::vector<int> iVector;
-        for (const auto& p : pVector) {
-          iVector.push_back(*p);
-        };
-        return iVector;
-      })
-    | as<vector>();
+  auto actual = seq(0, 4) |
+      mapped([](int i) { return std::make_unique<int>(i); }) | batch(2) |
+      mapped([](std::vector<std::unique_ptr<int>>& pVector) {
+                  std::vector<int> iVector;
+                  for (const auto& p : pVector) {
+                    iVector.push_back(*p);
+                  };
+                  return iVector;
+                }) |
+      as<vector>();
   EXPECT_EQ(expected, actual);
+}
+
+TEST(Gen, Window) {
+  auto expected = seq(0, 10) | as<std::vector>();
+  for (size_t windowSize = 1; windowSize <= 20; ++windowSize) {
+    // no early stop
+    auto actual = seq(0, 10) |
+        mapped([](int i) { return std::make_unique<int>(i); }) | window(4) |
+        dereference | as<std::vector>();
+    EXPECT_EQ(expected, actual) << windowSize;
+  }
+  for (size_t windowSize = 1; windowSize <= 20; ++windowSize) {
+    // pre-window take
+    auto actual = seq(0) |
+        mapped([](int i) { return std::make_unique<int>(i); }) | take(11) |
+        window(4) | dereference | as<std::vector>();
+    EXPECT_EQ(expected, actual) << windowSize;
+  }
+  for (size_t windowSize = 1; windowSize <= 20; ++windowSize) {
+    // post-window take
+    auto actual = seq(0) |
+        mapped([](int i) { return std::make_unique<int>(i); }) | window(4) |
+        take(11) | dereference | as<std::vector>();
+    EXPECT_EQ(expected, actual) << windowSize;
+  }
 }
 
 TEST(Gen, Just) {

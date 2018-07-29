@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,28 +28,13 @@
 #include <type_traits>
 #include <utility>
 
+#include <folly/ConstexprMath.h>
+#include <folly/Portability.h>
 #include <folly/Range.h>
 #include <folly/Utility.h>
-#include <folly/portability/BitsFunctexcept.h>
+#include <folly/lang/Exception.h>
+#include <folly/lang/Ordering.h>
 #include <folly/portability/Constexpr.h>
-
-// Define FOLLY_USE_CPP14_CONSTEXPR to be true if the compiler's C++14
-// constexpr support is "good enough".
-#ifndef FOLLY_USE_CPP14_CONSTEXPR
-#if defined(__clang__)
-#define FOLLY_USE_CPP14_CONSTEXPR __cplusplus >= 201300L
-#elif defined(__GNUC__)
-#define FOLLY_USE_CPP14_CONSTEXPR __cplusplus >= 201304L
-#else
-#define FOLLY_USE_CPP14_CONSTEXPR 0 // MSVC?
-#endif
-#endif
-
-#if FOLLY_USE_CPP14_CONSTEXPR
-#define FOLLY_CPP14_CONSTEXPR constexpr
-#else
-#define FOLLY_CPP14_CONSTEXPR inline
-#endif
 
 namespace folly {
 
@@ -79,25 +64,24 @@ using FixedStringBase = FixedStringBase_<>;
 // it's testing for fails. In this way, precondition violations are reported
 // at compile-time instead of at runtime.
 [[noreturn]] inline void assertOutOfBounds() {
-  assert(false && "Array index out of bounds in BasicFixedString");
-  std::__throw_out_of_range("Array index out of bounds in BasicFixedString");
+  assert(!"Array index out of bounds in BasicFixedString");
+  throw_exception<std::out_of_range>(
+      "Array index out of bounds in BasicFixedString");
 }
 
 constexpr std::size_t checkOverflow(std::size_t i, std::size_t max) {
-  return i <= max ? i : (assertOutOfBounds(), max);
+  return i <= max ? i : (void(assertOutOfBounds()), max);
 }
 
 constexpr std::size_t checkOverflowOrNpos(std::size_t i, std::size_t max) {
   return i == FixedStringBase::npos
       ? max
-      : (i <= max ? i : (assertOutOfBounds(), max));
+      : (i <= max ? i : (void(assertOutOfBounds()), max));
 }
 
 // Intentionally NOT constexpr. See note above for assertOutOfBounds
 [[noreturn]] inline void assertNotNullTerminated() noexcept {
-  assert(
-      false &&
-      "Non-null terminated string used to initialize a BasicFixedString");
+  assert(!"Non-null terminated string used to initialize a BasicFixedString");
   std::terminate(); // Fail hard, fail fast.
 }
 
@@ -116,17 +100,15 @@ constexpr const Char (&checkNullTerminated(const Char (&a)[N]) noexcept)[N] {
       : (assertNotNullTerminated(), decltype(a)(a));
 }
 
-enum class Cmp : int { LT = -1, EQ = 0, GT = 1 };
-
 // Rather annoyingly, GCC's -Warray-bounds warning issues false positives for
 // this code. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61971
-#if defined(__GNUC__) && !defined(__CLANG__) && __GNUC__ <= 5
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 5
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
 
 template <class Left, class Right>
-constexpr Cmp compare_(
+constexpr ordering compare_(
     const Left& left,
     std::size_t left_pos,
     std::size_t left_size,
@@ -134,12 +116,12 @@ constexpr Cmp compare_(
     std::size_t right_pos,
     std::size_t right_size) noexcept {
   return left_pos == left_size
-      ? (right_pos == right_size ? Cmp::EQ : Cmp::LT)
-      : (right_pos == right_size ? Cmp::GT
+      ? (right_pos == right_size ? ordering::eq : ordering::lt)
+      : (right_pos == right_size ? ordering::gt
                                  : (left[left_pos] < right[right_pos]
-                                        ? Cmp::LT
+                                        ? ordering::lt
                                         : (left[left_pos] > right[right_pos]
-                                               ? Cmp::GT
+                                               ? ordering::gt
                                                : fixedstring::compare_(
                                                      left,
                                                      left_pos + 1u,
@@ -156,7 +138,7 @@ constexpr bool equal_(
     const Right& right,
     std::size_t right_size) noexcept {
   return left_size == right_size &&
-      Cmp::EQ == compare_(left, 0u, left_size, right, 0u, right_size);
+      ordering::eq == compare_(left, 0u, left_size, right, 0u, right_size);
 }
 
 template <class Char, class Left, class Right>
@@ -319,7 +301,7 @@ struct Helper {
   }
 };
 
-#if defined(__GNUC__) && !defined(__CLANG__) && __GNUC__ <= 4
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 4
 #pragma GCC diagnostic pop
 #endif
 
@@ -329,18 +311,6 @@ FOLLY_CPP14_CONSTEXPR void constexpr_swap(T& a, T& b) noexcept(
   T tmp((std::move(a)));
   a = std::move(b);
   b = std::move(tmp);
-}
-
-// FUTURE: use const_log2 to fold instantiations of BasicFixedString together.
-// All BasicFixedString<C, N> instantiations could share the implementation
-// of BasicFixedString<C, M>, where M is the next highest power of 2 after N.
-//
-// Also, because of alignment of the data_ and size_ members, N should never be
-// smaller than `(alignof(std::size_t)/sizeof(C))-1` (-1 because of the null
-// terminator). OR, create a specialization for BasicFixedString<C, 0u> that
-// does not have a size_ member, since it is unnecessary.
-constexpr std::size_t const_log2(std::size_t N, std::size_t log2 = 0u) {
-  return N / 2u == 0u ? log2 : const_log2(N / 2u, log2 + 1u);
 }
 
 // For constexpr reverse iteration over a BasicFixedString
@@ -437,7 +407,7 @@ struct ReverseIterator {
 } // namespace fixedstring
 } // namespace detail
 
-// Defined in folly/Hash.h
+// Defined in folly/hash/Hash.h
 std::uint32_t hsieh_hash32_buf(const void* buf, std::size_t len);
 
 /** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** *
@@ -545,6 +515,15 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   friend class BasicFixedString;
   friend struct detail::fixedstring::Helper;
 
+  // FUTURE: use constexpr_log2 to fold instantiations of BasicFixedString
+  // together. All BasicFixedString<C, N> instantiations could share the
+  // implementation of BasicFixedString<C, M>, where M is the next highest power
+  // of 2 after N.
+  //
+  // Also, because of alignment of the data_ and size_ members, N should never
+  // be smaller than `(alignof(std::size_t)/sizeof(C))-1` (-1 because of the
+  // null terminator). OR, create a specialization for BasicFixedString<C, 0u>
+  // that does not have a size_ member, since it is unnecessary.
   Char data_[N + 1u]; // +1 for the null terminator
   std::size_t size_; // Nbr of chars, not incl. null terminator. size_ <= N.
 
@@ -807,29 +786,6 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
     size_ = il.size();
     data_[size_] = Char(0);
     return *this;
-  }
-
-  /** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
-   * Conversion to folly::Range
-   * \return `Range<Iter>{begin(), end()}`
-   */
-  template <
-      class Iter,
-      class = typename std::enable_if<
-          std::is_convertible<Char*, Iter>::value>::type>
-  FOLLY_CPP14_CONSTEXPR /* implicit */ operator Range<Iter>() noexcept {
-    return {begin(), end()};
-  }
-
-  /**
-   * \overload
-   */
-  template <
-      class Iter,
-      class = typename std::enable_if<
-          std::is_convertible<const Char*, Iter>::value>::type>
-  constexpr /* implicit */ operator Range<Iter>() const noexcept {
-    return {begin(), end()};
   }
 
   /** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
@@ -1146,20 +1102,20 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
    * \throw std::out_of_range when i > size()
    */
   FOLLY_CPP14_CONSTEXPR Char& at(std::size_t i) noexcept(false) {
-    return i <= size_
-        ? data_[i]
-        : (std::__throw_out_of_range("Out of range in BasicFixedString::at"),
-           data_[size_]);
+    return i <= size_ ? data_[i]
+                      : (throw_exception<std::out_of_range>(
+                             "Out of range in BasicFixedString::at"),
+                         data_[size_]);
   }
 
   /**
    * \overload
    */
   constexpr const Char& at(std::size_t i) const noexcept(false) {
-    return i <= size_
-        ? data_[i]
-        : (std::__throw_out_of_range("Out of range in BasicFixedString::at"),
-           data_[size_]);
+    return i <= size_ ? data_[i]
+                      : (throw_exception<std::out_of_range>(
+                             "Out of range in BasicFixedString::at"),
+                         data_[size_]);
   }
 
   /**
@@ -1284,8 +1240,9 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
       std::size_t count,
       Char ch) noexcept(false) {
     detail::fixedstring::checkOverflow(count, N - size_);
-    for (std::size_t i = 0u; i < count; ++i)
+    for (std::size_t i = 0u; i < count; ++i) {
       data_[size_ + i] = ch;
+    }
     size_ += count;
     data_[size_] = Char(0);
     return *this;
@@ -1332,8 +1289,9 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
     detail::fixedstring::checkOverflow(pos, that.size_);
     count = detail::fixedstring::checkOverflowOrNpos(count, that.size_ - pos);
     detail::fixedstring::checkOverflow(count, N - size_);
-    for (std::size_t i = 0u; i < count; ++i)
+    for (std::size_t i = 0u; i < count; ++i) {
       data_[size_ + i] = that.data_[pos + i];
+    }
     size_ += count;
     data_[size_] = Char(0);
     return *this;
@@ -1360,8 +1318,9 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
       const Char* that,
       std::size_t count) noexcept(false) {
     detail::fixedstring::checkOverflow(count, N - size_);
-    for (std::size_t i = 0u; i < count; ++i)
+    for (std::size_t i = 0u; i < count; ++i) {
       data_[size_ + i] = that[i];
+    }
     size_ += count;
     data_[size_] = Char(0);
     return *this;
@@ -2069,8 +2028,9 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   copy(Char* dest, std::size_t count, std::size_t pos) const noexcept(false) {
     detail::fixedstring::checkOverflow(pos, size_);
     for (std::size_t i = 0u; i < count; ++i) {
-      if (i + pos == size_)
+      if (i + pos == size_) {
         return size_;
+      }
       dest[i] = data_[i + pos];
     }
     return count;
@@ -2740,7 +2700,7 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   friend constexpr bool operator<(
       const Char* a,
       const BasicFixedString& b) noexcept {
-    return detail::fixedstring::Cmp::LT ==
+    return ordering::lt ==
         detail::fixedstring::compare_(
                a, 0u, folly::constexpr_strlen(a), b.data_, 0u, b.size_);
   }
@@ -2751,7 +2711,7 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   friend constexpr bool operator<(
       const BasicFixedString& a,
       const Char* b) noexcept {
-    return detail::fixedstring::Cmp::LT ==
+    return ordering::lt ==
         detail::fixedstring::compare_(
                a.data_, 0u, a.size_, b, 0u, folly::constexpr_strlen(b));
   }
@@ -2762,7 +2722,7 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   friend constexpr bool operator<(
       Range<const Char*> a,
       const BasicFixedString& b) noexcept {
-    return detail::fixedstring::Cmp::LT ==
+    return ordering::lt ==
         detail::fixedstring::compare_(
                a.begin(), 0u, a.size(), b.data_, 0u, b.size_);
   }
@@ -2773,7 +2733,7 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   friend constexpr bool operator<(
       const BasicFixedString& a,
       Range<const Char*> b) noexcept {
-    return detail::fixedstring::Cmp::LT ==
+    return ordering::lt ==
         detail::fixedstring::compare_(
                a.data_, 0u, a.size_, b.begin(), 0u, b.size());
   }
@@ -2938,6 +2898,15 @@ class BasicFixedString : private detail::fixedstring::FixedStringBase {
   }
 };
 
+template <class C, std::size_t N>
+inline std::basic_ostream<C>& operator<<(
+    std::basic_ostream<C>& os,
+    const BasicFixedString<C, N>& string) {
+  using StreamSize = decltype(os.width());
+  os.write(string.begin(), static_cast<StreamSize>(string.size()));
+  return os;
+}
+
 /** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
  * Symmetric relational operators
  */
@@ -2963,7 +2932,7 @@ template <class Char, std::size_t A, std::size_t B>
 constexpr bool operator<(
     const BasicFixedString<Char, A>& a,
     const BasicFixedString<Char, B>& b) noexcept {
-  return detail::fixedstring::Cmp::LT ==
+  return ordering::lt ==
       detail::fixedstring::compare_(
              detail::fixedstring::Helper::data_(a),
              0u,
@@ -3039,7 +3008,7 @@ inline namespace {
 // "const std::size_t&" is so that folly::npos has the same address in every
 // translation unit. This is to avoid potential violations of the ODR.
 constexpr const std::size_t& npos = detail::fixedstring::FixedStringBase::npos;
-}
+} // namespace
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -3092,8 +3061,8 @@ FOLLY_DEFINE_FIXED_STRING_UDL(64)
 FOLLY_DEFINE_FIXED_STRING_UDL(128)
 
 #undef FOLLY_DEFINE_FIXED_STRING_UDL
-}
-}
+} // namespace string_literals
+} // namespace literals
 
 // TODO:
 // // numeric conversions:
@@ -3128,4 +3097,4 @@ FOLLY_DEFINE_FIXED_STRING_UDL(128)
 // constexpr FixedString</*...*/> to_fixed_string_ll() noexcept
 // template <unsigned long long val>
 // constexpr FixedString</*...*/> to_fixed_string_ull() noexcept;
-}
+} // namespace folly

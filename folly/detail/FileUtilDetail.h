@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cerrno>
 
 #include <folly/portability/SysUio.h>
@@ -28,7 +29,7 @@
 namespace folly { namespace fileutil_detail {
 
 // Wrap call to f(args) in loop to retry on EINTR
-template<class F, class... Args>
+template <class F, class... Args>
 ssize_t wrapNoInt(F f, Args... args) {
   ssize_t r;
   do {
@@ -105,4 +106,5 @@ ssize_t wrapvFull(F f, int fd, iovec* iov, int count, Offset... offset) {
   return totalBytes;
 }
 
-}}  // namespaces
+} // namespace fileutil_detail
+} // namespace folly

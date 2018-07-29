@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@
 // will verify that the file actually gets created, which means that everything
 // worked as intended.
 
-#include <sys/types.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/types.h>
 
 #include <glog/logging.h>
 
@@ -39,7 +39,7 @@ DEFINE_bool(child, false, "");
 
 namespace {
 constexpr int kSignal = SIGUSR1;
-}  // namespace
+} // namespace
 
 void runChild(const char* file) {
   // Block SIGUSR1 so it's queued

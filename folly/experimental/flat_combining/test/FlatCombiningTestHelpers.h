@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,8 +80,9 @@ uint64_t fc_test(
       started.fetch_add(1);
       Rec* myrec = (combining && tc) ? ex.allocRec() : nullptr;
       uint64_t sum = 0;
-      while (!start.load())
+      while (!start.load()) {
         ;
+      }
 
       if (!combining) {
         // no combining
@@ -141,8 +142,9 @@ uint64_t fc_test(
     });
   }
 
-  while (started.load() < nthreads)
+  while (started.load() < nthreads) {
     ;
+  }
   auto tbegin = std::chrono::steady_clock::now();
 
   // begin time measurement
@@ -220,5 +222,5 @@ uint64_t run_test(
   }
 }
 
-} // namespace test {
-} // namespace folly {
+} // namespace test
+} // namespace folly

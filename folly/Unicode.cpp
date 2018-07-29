@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,10 +64,15 @@ char32_t utf8ToCodePoint(
    * 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
    */
 
-  auto skip = [&] { ++p; return U'\ufffd'; };
+  const auto skip = [&] {
+    ++p;
+    return U'\ufffd';
+  };
 
   if (p >= e) {
-    if (skipOnError) return skip();
+    if (skipOnError) {
+      return skip();
+    }
     throw std::runtime_error("folly::utf8ToCodePoint empty/invalid string");
   }
 
@@ -88,17 +93,21 @@ char32_t utf8ToCodePoint(
   uint32_t d = fst;
 
   if ((fst & 0xC0) != 0xC0) {
-    if (skipOnError) return skip();
+    if (skipOnError) {
+      return skip();
+    }
     throw std::runtime_error(to<std::string>("folly::utf8ToCodePoint i=0 d=", d));
   }
 
   fst <<= 1;
 
   for (unsigned int i = 1; i != 3 && p + i < e; ++i) {
-    unsigned char tmp = p[i];
+    const unsigned char tmp = p[i];
 
     if ((tmp & 0xC0) != 0x80) {
-      if (skipOnError) return skip();
+      if (skipOnError) {
+        return skip();
+      }
       throw std::runtime_error(
         to<std::string>("folly::utf8ToCodePoint i=", i, " tmp=", (uint32_t)tmp));
     }
@@ -111,7 +120,9 @@ char32_t utf8ToCodePoint(
 
       // overlong, could have been encoded with i bytes
       if ((d & ~bitMask[i - 1]) == 0) {
-        if (skipOnError) return skip();
+        if (skipOnError) {
+          return skip();
+        }
         throw std::runtime_error(
           to<std::string>("folly::utf8ToCodePoint i=", i, " d=", d));
       }
@@ -119,7 +130,9 @@ char32_t utf8ToCodePoint(
       // check for surrogates only needed for 3 bytes
       if (i == 2) {
         if ((d >= 0xD800 && d <= 0xDFFF) || d > 0x10FFFF) {
-          if (skipOnError) return skip();
+          if (skipOnError) {
+            return skip();
+          }
           throw std::runtime_error(
             to<std::string>("folly::utf8ToCodePoint i=", i, " d=", d));
         }
@@ -130,10 +143,12 @@ char32_t utf8ToCodePoint(
     }
   }
 
-  if (skipOnError) return skip();
+  if (skipOnError) {
+    return skip();
+  }
   throw std::runtime_error("folly::utf8ToCodePoint encoding length maxed out");
 }
 
 //////////////////////////////////////////////////////////////////////
 
-}
+} // namespace folly

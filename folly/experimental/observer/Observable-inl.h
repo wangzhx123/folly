@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,10 @@ class ObserverCreator<Observable, Traits>::Context {
     // callbacks (getting new value from observable and storing it into value_
     // is not atomic).
     std::lock_guard<std::mutex> lg(updateMutex_);
-    updateValue();
+    if (!updateValue()) {
+      // Value didn't change, so we can skip the version update.
+      return;
+    }
 
     bool expected = false;
     if (updateRequested_.compare_exchange_strong(expected, true)) {
@@ -63,12 +66,14 @@ class ObserverCreator<Observable, Traits>::Context {
   }
 
  private:
-  void updateValue() {
+  bool updateValue() {
     auto newValue = Traits::get(observable_);
+    auto newValuePtr = newValue.get();
     if (!newValue) {
       throw std::logic_error("Observable returned nullptr.");
     }
     value_.swap(newValue);
+    return newValuePtr != newValue.get();
   }
 
   folly::Synchronized<std::shared_ptr<const T>> value_;
@@ -152,5 +157,5 @@ ObserverCreator<Observable, Traits>::getObserver()&& {
 
   return observer;
 }
-}
-}
+} // namespace observer
+} // namespace folly

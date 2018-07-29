@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,8 @@
 
 #include <folly/experimental/symbolizer/SignalHandler.h>
 
-#include <pthread.h>
 #include <signal.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -36,8 +34,10 @@
 #include <folly/experimental/symbolizer/ElfCache.h>
 #include <folly/experimental/symbolizer/Symbolizer.h>
 #include <folly/portability/SysSyscall.h>
+#include <folly/portability/Unistd.h>
 
-namespace folly { namespace symbolizer {
+namespace folly {
+namespace symbolizer {
 
 namespace {
 
@@ -59,22 +59,20 @@ class FatalSignalCallbackRegistry {
 };
 
 FatalSignalCallbackRegistry::FatalSignalCallbackRegistry()
-  : installed_(false) {
-}
+    : installed_(false) {}
 
 void FatalSignalCallbackRegistry::add(SignalCallback func) {
   std::lock_guard<std::mutex> lock(mutex_);
-  CHECK(!installed_)
-    << "FatalSignalCallbackRegistry::add may not be used "
-       "after installing the signal handlers.";
+  CHECK(!installed_) << "FatalSignalCallbackRegistry::add may not be used "
+                        "after installing the signal handlers.";
   handlers_.push_back(func);
 }
 
 void FatalSignalCallbackRegistry::markInstalled() {
   std::lock_guard<std::mutex> lock(mutex_);
   CHECK(!installed_.exchange(true))
-    << "FatalSignalCallbackRegistry::markInstalled must be called "
-    << "at most once";
+      << "FatalSignalCallbackRegistry::markInstalled must be called "
+      << "at most once";
 }
 
 void FatalSignalCallbackRegistry::run() {
@@ -89,20 +87,21 @@ void FatalSignalCallbackRegistry::run() {
 
 // Leak it so we don't have to worry about destruction order
 FatalSignalCallbackRegistry* gFatalSignalCallbackRegistry =
-  new FatalSignalCallbackRegistry;
+    new FatalSignalCallbackRegistry;
 
 struct {
   int number;
   const char* name;
   struct sigaction oldAction;
 } kFatalSignals[] = {
-  { SIGSEGV, "SIGSEGV", {} },
-  { SIGILL,  "SIGILL",  {} },
-  { SIGFPE,  "SIGFPE",  {} },
-  { SIGABRT, "SIGABRT", {} },
-  { SIGBUS,  "SIGBUS",  {} },
-  { SIGTERM, "SIGTERM", {} },
-  { 0,       nullptr,   {} }
+    {SIGSEGV, "SIGSEGV", {}},
+    {SIGILL, "SIGILL", {}},
+    {SIGFPE, "SIGFPE", {}},
+    {SIGABRT, "SIGABRT", {}},
+    {SIGBUS, "SIGBUS", {}},
+    {SIGTERM, "SIGTERM", {}},
+    {SIGQUIT, "SIGQUIT", {}},
+    {0, nullptr, {}},
 };
 
 void callPreviousSignalHandler(int signum) {
@@ -129,7 +128,7 @@ void callPreviousSignalHandler(int signum) {
 // in our signal handler at a time.
 //
 // Leak it so we don't have to worry about destruction order
-StackTracePrinter* gStackTracePrinter = new StackTracePrinter();
+SafeStackTracePrinter* gStackTracePrinter = new SafeStackTracePrinter();
 
 void printDec(uint64_t val) {
   char buf[20];
@@ -140,7 +139,7 @@ void printDec(uint64_t val) {
 const char kHexChars[] = "0123456789abcdef";
 void printHex(uint64_t val) {
   // TODO(tudorb): Add this to folly/Conv.h
-  char buf[2 + 2 * sizeof(uint64_t)];  // "0x" prefix, 2 digits for each byte
+  char buf[2 + 2 * sizeof(uint64_t)]; // "0x" prefix, 2 digits for each byte
 
   char* end = buf + sizeof(buf);
   char* p = end;
@@ -163,7 +162,9 @@ void flush() {
 }
 
 void dumpTimeInfo() {
-  SCOPE_EXIT { flush(); };
+  SCOPE_EXIT {
+    flush();
+  };
   time_t now = time(nullptr);
   print("*** Aborted at ");
   printDec(now);
@@ -241,7 +242,7 @@ const char* sigbus_reason(int si_code) {
     case BUS_OBJERR:
       return "object-specific hardware error";
 
-    // MCEERR_AR and MCEERR_AO: in sigaction(2) but not in headers.
+      // MCEERR_AR and MCEERR_AO: in sigaction(2) but not in headers.
 
     default:
       return nullptr;
@@ -255,7 +256,7 @@ const char* sigtrap_reason(int si_code) {
     case TRAP_TRACE:
       return "process trace trap";
 
-    // TRAP_BRANCH and TRAP_HWBKPT: in sigaction(2) but not in headers.
+      // TRAP_BRANCH and TRAP_HWBKPT: in sigaction(2) but not in headers.
 
     default:
       return nullptr;
@@ -325,7 +326,9 @@ const char* signal_reason(int signum, int si_code) {
 }
 
 void dumpSignalInfo(int signum, siginfo_t* siginfo) {
-  SCOPE_EXIT { flush(); };
+  SCOPE_EXIT {
+    flush();
+  };
   // Get the signal name, if possible.
   const char* name = nullptr;
   for (auto p = kFatalSignals; p->name; ++p) {
@@ -400,7 +403,7 @@ void innerSignalHandler(int signum, siginfo_t* info, void* /* uctx */) {
     // Wait a while, try again.
     timespec ts;
     ts.tv_sec = 0;
-    ts.tv_nsec = 100L * 1000 * 1000;  // 100ms
+    ts.tv_nsec = 100L * 1000 * 1000; // 100ms
     nanosleep(&ts, nullptr);
 
     prevSignalThread = kInvalidThreadId;
@@ -415,7 +418,9 @@ void innerSignalHandler(int signum, siginfo_t* info, void* /* uctx */) {
 }
 
 void signalHandler(int signum, siginfo_t* info, void* uctx) {
-  SCOPE_EXIT { flush(); };
+  SCOPE_EXIT {
+    flush();
+  };
   innerSignalHandler(signum, info, uctx);
 
   gSignalThread = kInvalidThreadId;
@@ -423,7 +428,7 @@ void signalHandler(int signum, siginfo_t* info, void* uctx) {
   callPreviousSignalHandler(signum);
 }
 
-}  // namespace
+} // namespace
 
 void addFatalSignalCallback(SignalCallback cb) {
   gFatalSignalCallbackRegistry->add(cb);
@@ -437,7 +442,7 @@ namespace {
 
 std::atomic<bool> gAlreadyInstalled;
 
-}  // namespace
+} // namespace
 
 void installFatalSignalHandler() {
   if (gAlreadyInstalled.exchange(true)) {
@@ -460,5 +465,5 @@ void installFatalSignalHandler() {
     CHECK_ERR(sigaction(p->number, &sa, &p->oldAction));
   }
 }
-
-}}  // namespaces
+} // namespace symbolizer
+} // namespace folly

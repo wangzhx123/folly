@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,16 @@
 
 #pragma once
 
-#include <folly/Baton.h>
 #include <folly/Function.h>
 #include <folly/IndexedMemPool.h>
 #include <folly/Portability.h>
-#include <folly/detail/CacheLocality.h>
+#include <folly/concurrency/CacheLocality.h>
+#include <folly/synchronization/SaturatingSemaphore.h>
 
 #include <atomic>
 #include <cassert>
 #include <mutex>
+#include <thread>
 
 namespace folly {
 
@@ -35,7 +36,7 @@ namespace folly {
 ///
 /// FC is an alternative to coarse-grained locking for making
 /// sequential data structures thread-safe while minimizing the
-/// synchroniation overheads and cache coherence traffic associated
+/// synchronization overheads and cache coherence traffic associated
 /// with locking.
 ///
 /// Under FC, when a thread finds the lock contended, it can
@@ -50,7 +51,7 @@ namespace folly {
 ///   and acquiring the lock are eliminated from the critical path of
 ///   operating on the data structure.
 /// - Opportunities for smart combining, where executing multiple
-///   operations together may take less time than executng the
+///   operations together may take less time than executing the
 ///   operations separately, e.g., K delete_min operations on a
 ///   priority queue may be combined to take O(K + log N) time instead
 ///   of O(K * log N).
@@ -59,13 +60,13 @@ namespace folly {
 
 /// - A simple interface that requires minimal extra code by the
 ///   user. To use this interface efficiently the user-provided
-///   functions must be copyable to folly::Functio without dynamic
+///   functions must be copyable to folly::Function without dynamic
 ///   allocation. If this is impossible or inconvenient, the user is
 ///   encouraged to use the custom interface described below.
-/// - A custom interface that supports custom combinining and custom
+/// - A custom interface that supports custom combining and custom
 ///   request structure, either for the sake of smart combining or for
 ///   efficiently supporting operations that are not be copyable to
-///   folly::Function without synamic allocation.
+///   folly::Function without dynamic allocation.
 /// - Both synchronous and asynchronous operations.
 /// - Request records with and without thread-caching.
 /// - Combining with and without a dedicated combiner thread.
@@ -111,10 +112,10 @@ class FlatCombining {
  public:
   /// Combining request record.
   class Rec {
-    FOLLY_ALIGN_TO_AVOID_FALSE_SHARING
-    folly::Baton<Atom, true, false> valid_;
-    folly::Baton<Atom, true, false> done_;
-    folly::Baton<Atom, true, false> disconnected_;
+    alignas(hardware_destructive_interference_size)
+        folly::SaturatingSemaphore<false, Atom> valid_;
+    folly::SaturatingSemaphore<false, Atom> done_;
+    folly::SaturatingSemaphore<false, Atom> disconnected_;
     size_t index_;
     size_t next_;
     uint64_t last_;
@@ -136,7 +137,7 @@ class FlatCombining {
     }
 
     bool isValid() const {
-      return valid_.try_wait();
+      return valid_.ready();
     }
 
     void setDone() {
@@ -148,7 +149,7 @@ class FlatCombining {
     }
 
     bool isDone() const {
-      return done_.try_wait();
+      return done_.ready();
     }
 
     void awaitDone() {
@@ -164,7 +165,7 @@ class FlatCombining {
     }
 
     bool isDisconnected() const {
-      return disconnected_.try_wait();
+      return disconnected_.ready();
     }
 
     void setIndex(const size_t index) {
@@ -420,23 +421,20 @@ class FlatCombining {
   const uint64_t kDefaultNumRecs = 64;
   const uint64_t kIdleThreshold = 10;
 
-  FOLLY_ALIGN_TO_AVOID_FALSE_SHARING
-  Mutex m_;
+  alignas(hardware_destructive_interference_size) Mutex m_;
 
-  FOLLY_ALIGN_TO_AVOID_FALSE_SHARING
-  folly::Baton<Atom, false, true> pending_;
+  alignas(hardware_destructive_interference_size)
+      folly::SaturatingSemaphore<true, Atom> pending_;
   Atom<bool> shutdown_{false};
 
-  FOLLY_ALIGN_TO_AVOID_FALSE_SHARING
-  uint32_t numRecs_;
+  alignas(hardware_destructive_interference_size) uint32_t numRecs_;
   uint32_t maxOps_;
   Atom<size_t> recs_;
   bool dedicated_;
   std::thread combiner_;
   Pool recsPool_;
 
-  FOLLY_ALIGN_TO_AVOID_FALSE_SHARING
-  uint64_t uncombined_ = 0;
+  alignas(hardware_destructive_interference_size) uint64_t uncombined_ = 0;
   uint64_t combined_ = 0;
   uint64_t passes_ = 0;
   uint64_t sessions_ = 0;
@@ -541,7 +539,7 @@ class FlatCombining {
   }
 
   bool isPending() const {
-    return pending_.try_wait();
+    return pending_.ready();
   }
 
   void awaitPending() {
@@ -679,4 +677,4 @@ class FlatCombining {
   }
 };
 
-} // namespace folly {
+} // namespace folly

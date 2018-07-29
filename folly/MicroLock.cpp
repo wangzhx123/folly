@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ void MicroLockCore::lockSlowPath(uint32_t oldWord,
   uint32_t newWord;
   unsigned spins = 0;
   uint32_t slotWaitBit = slotHeldBit << 1;
+  uint32_t needWaitBit = 0;
 
 retry:
   if ((oldWord & slotHeldBit) != 0) {
@@ -47,17 +48,18 @@ retry:
         }
       }
       (void)wordPtr->futexWait(newWord, slotHeldBit);
+      needWaitBit = slotWaitBit;
     } else if (spins > maxSpins) {
       // sched_yield(), but more portable
       std::this_thread::yield();
     } else {
-      folly::asm_pause();
+      folly::asm_volatile_pause();
     }
     oldWord = wordPtr->load(std::memory_order_relaxed);
     goto retry;
   }
 
-  newWord = oldWord | slotHeldBit;
+  newWord = oldWord | slotHeldBit | needWaitBit;
   if (!wordPtr->compare_exchange_weak(oldWord,
                                       newWord,
                                       std::memory_order_acquire,
@@ -65,4 +67,4 @@ retry:
     goto retry;
   }
 }
-}
+} // namespace folly

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
  */
 
 #include <iostream>
+
+#include <glog/logging.h>
+
 #include <folly/Conv.h>
 #include <folly/experimental/ProgramOptions.h>
-#include <glog/logging.h>
 
 DEFINE_bool(flag_bool_true, true, "Bool with true default value");
 DEFINE_bool(flag_bool_false, false, "Bool with false default value");
@@ -34,7 +36,7 @@ void print(const po::variables_map& vm, const std::string& name) {
          name.c_str(),
          folly::to<std::string>(v.as<T>()).c_str());
 }
-}  // namespace
+} // namespace
 
 int main(int argc, char *argv[]) {
   po::options_description desc;

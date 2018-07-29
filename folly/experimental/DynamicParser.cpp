@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,8 @@
  */
 #include <folly/experimental/DynamicParser.h>
 
+#include <sstream>
+
 #include <folly/Optional.h>
 
 namespace folly {
@@ -42,7 +44,7 @@ folly::dynamic& insertAtKey(
     "Unsupported key type ", key.typeName(), " of ", detail::toPseudoJson(key)
   );
 }
-}  // anonymous namespace
+} // namespace
 
 void DynamicParser::reportError(
     const folly::dynamic* lookup_k,
@@ -117,14 +119,11 @@ void DynamicParser::ParserStack::Pop::operator()() noexcept {
   }
 }
 
-folly::ScopeGuardImpl<DynamicParser::ParserStack::Pop>
-DynamicParser::ParserStack::push(
+DynamicParser::ParserStack::PopGuard DynamicParser::ParserStack::push(
     const folly::dynamic& k,
     const folly::dynamic& v) noexcept {
   // Save the previous state of the parser.
-  folly::ScopeGuardImpl<DynamicParser::ParserStack::Pop> guard(
-    DynamicParser::ParserStack::Pop(this)
-  );
+  DynamicParser::ParserStack::PopGuard guard{this};
   key_ = &k;
   value_ = &v;
   // We create errors_ sub-objects lazily to keep the result small.
@@ -187,6 +186,6 @@ std::string toPseudoJson(const folly::dynamic& d) {
   ss << d;
   return ss.str();
 }
-}  // namespace detail
+} // namespace detail
 
-}  // namespace folly
+} // namespace folly

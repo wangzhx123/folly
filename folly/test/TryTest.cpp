@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,28 +19,164 @@
 #include <glog/logging.h>
 
 #include <folly/Memory.h>
+#include <folly/Traits.h>
 #include <folly/portability/GTest.h>
 
 using namespace folly;
 
+namespace {
+
+class A {
+ public:
+  explicit A(int x) : x_(x) {}
+
+  int x() const {
+    return x_;
+  }
+ private:
+  int x_;
+};
+
+template <bool Nothrow>
+class HasCtors {
+ public:
+  explicit HasCtors(int) noexcept(Nothrow) {}
+  HasCtors(HasCtors&&) noexcept(Nothrow) {}
+  HasCtors& operator=(HasCtors&&) noexcept(Nothrow) {}
+  HasCtors(HasCtors const&) noexcept(Nothrow) {}
+  HasCtors& operator=(HasCtors const&) noexcept(Nothrow) {}
+};
+
+class MoveConstructOnly {
+ public:
+  MoveConstructOnly() = default;
+  MoveConstructOnly(const MoveConstructOnly&) = delete;
+  MoveConstructOnly(MoveConstructOnly&&) = default;
+};
+
+class MutableContainer {
+ public:
+  mutable MoveConstructOnly val;
+};
+} // namespace
+
 TEST(Try, basic) {
-  class A {
-   public:
-    A(int x) : x_(x) {}
-
-    int x() const {
-      return x_;
-    }
-   private:
-    int x_;
-  };
-
   A a(5);
   Try<A> t_a(std::move(a));
 
   Try<Unit> t_void;
 
   EXPECT_EQ(5, t_a.value().x());
+}
+
+TEST(Try, in_place) {
+  Try<A> t_a(in_place, 5);
+
+  EXPECT_EQ(5, t_a.value().x());
+}
+
+TEST(Try, in_place_nested) {
+  Try<Try<A>> t_t_a(in_place, in_place, 5);
+
+  EXPECT_EQ(5, t_t_a.value().value().x());
+}
+
+TEST(Try, nothrow) {
+  using F = HasCtors<false>;
+  using T = HasCtors<true>;
+
+  // default ctor
+  EXPECT_TRUE(std::is_nothrow_default_constructible<Try<F>>::value);
+  EXPECT_TRUE(std::is_nothrow_default_constructible<Try<T>>::value);
+  EXPECT_TRUE(std::is_nothrow_default_constructible<Try<void>>::value);
+
+  // inner ctor - no void
+  EXPECT_FALSE((std::is_nothrow_constructible<Try<F>, F&&>::value));
+  EXPECT_TRUE((std::is_nothrow_constructible<Try<T>, T&&>::value));
+  EXPECT_FALSE((std::is_nothrow_constructible<Try<F>, F const&>::value));
+  EXPECT_TRUE((std::is_nothrow_constructible<Try<T>, T const&>::value));
+
+  // emplacing ctor - no void
+  EXPECT_FALSE((std::is_nothrow_constructible<Try<F>, in_place_t, int>::value));
+  EXPECT_TRUE((std::is_nothrow_constructible<Try<T>, in_place_t, int>::value));
+
+  // copy/move ctor/assign
+  EXPECT_TRUE(std::is_nothrow_constructible<Try<void>>::value);
+  EXPECT_FALSE(std::is_nothrow_move_constructible<Try<F>>::value);
+  EXPECT_TRUE(std::is_nothrow_move_constructible<Try<T>>::value);
+  EXPECT_TRUE(std::is_nothrow_move_constructible<Try<void>>::value);
+  EXPECT_FALSE(std::is_nothrow_move_assignable<Try<F>>::value);
+  EXPECT_TRUE(std::is_nothrow_move_assignable<Try<T>>::value);
+  EXPECT_TRUE(std::is_nothrow_move_assignable<Try<void>>::value);
+  EXPECT_FALSE(std::is_nothrow_copy_constructible<Try<F>>::value);
+  EXPECT_TRUE(std::is_nothrow_copy_constructible<Try<T>>::value);
+  EXPECT_TRUE(std::is_nothrow_copy_constructible<Try<void>>::value);
+  EXPECT_FALSE(std::is_nothrow_copy_assignable<Try<F>>::value);
+  EXPECT_TRUE(std::is_nothrow_copy_assignable<Try<T>>::value);
+  EXPECT_TRUE(std::is_nothrow_copy_assignable<Try<void>>::value);
+
+  // conversion ctor - void to unit
+  EXPECT_TRUE((std::is_nothrow_constructible<Try<Unit>, Try<void>&&>::value));
+  EXPECT_TRUE(
+      (std::is_nothrow_constructible<Try<Unit>, Try<void> const&>::value));
+}
+
+TEST(Try, MoveDereference) {
+  auto ptr = std::make_unique<int>(1);
+  auto t = Try<std::unique_ptr<int>>{std::move(ptr)};
+  auto result = *std::move(t);
+  EXPECT_EQ(*result, 1);
+}
+
+TEST(Try, MoveConstRvalue) {
+  // tests to see if Try returns a const Rvalue, this is required in the case
+  // where for example MutableContainer has a mutable memebr that is move only
+  // and you want to fetch the value from the Try and move it into a member
+  {
+    const Try<MutableContainer> t{in_place};
+    auto val = MoveConstructOnly(std::move(t).value().val);
+    static_cast<void>(val);
+  }
+  {
+    const Try<MutableContainer> t{in_place};
+    auto val = (*(std::move(t))).val;
+    static_cast<void>(val);
+  }
+}
+
+TEST(Try, ValueOverloads) {
+  using ML = int&;
+  using MR = int&&;
+  using CL = const int&;
+  using CR = const int&&;
+
+  {
+    auto obj = Try<int>{};
+    using ActualML = decltype(obj.value());
+    using ActualMR = decltype(std::move(obj).value());
+    using ActualCL = decltype(as_const(obj).value());
+    using ActualCR = decltype(std::move(as_const(obj)).value());
+    EXPECT_TRUE((std::is_same<ML, ActualML>::value));
+    EXPECT_TRUE((std::is_same<MR, ActualMR>::value));
+    EXPECT_TRUE((std::is_same<CL, ActualCL>::value));
+    EXPECT_TRUE((std::is_same<CR, ActualCR>::value));
+  }
+
+  {
+    auto obj = Try<int>{3};
+    EXPECT_EQ(obj.value(), 3);
+    EXPECT_EQ(std::move(obj).value(), 3);
+    EXPECT_EQ(as_const(obj).value(), 3);
+    EXPECT_EQ(std::move(as_const(obj)).value(), 3);
+  }
+
+  {
+    auto obj = Try<int>{make_exception_wrapper<std::range_error>("oops")};
+    EXPECT_THROW(obj.value(), std::range_error);
+    EXPECT_THROW(std::move(obj.value()), std::range_error);
+    EXPECT_THROW(as_const(obj.value()), std::range_error);
+    EXPECT_THROW(std::move(as_const(obj.value())), std::range_error);
+  }
 }
 
 // Make sure we can copy Trys for copyable types
@@ -91,6 +227,69 @@ TEST(Try, makeTryWithVoidThrow) {
 
   auto result = makeTryWith(func);
   EXPECT_TRUE(result.hasException<std::runtime_error>());
+}
+
+TEST(Try, exception) {
+  using ML = exception_wrapper&;
+  using MR = exception_wrapper&&;
+  using CL = exception_wrapper const&;
+  using CR = exception_wrapper const&&;
+
+  {
+    auto obj = Try<int>();
+    using ActualML = decltype(obj.exception());
+    using ActualMR = decltype(std::move(obj).exception());
+    using ActualCL = decltype(as_const(obj).exception());
+    using ActualCR = decltype(std::move(as_const(obj)).exception());
+    EXPECT_TRUE((std::is_same<ML, ActualML>::value));
+    EXPECT_TRUE((std::is_same<MR, ActualMR>::value));
+    EXPECT_TRUE((std::is_same<CL, ActualCL>::value));
+    EXPECT_TRUE((std::is_same<CR, ActualCR>::value));
+  }
+
+  {
+    auto obj = Try<int>(3);
+    EXPECT_THROW(obj.exception(), TryException);
+    EXPECT_THROW(std::move(obj).exception(), TryException);
+    EXPECT_THROW(as_const(obj).exception(), TryException);
+    EXPECT_THROW(std::move(as_const(obj)).exception(), TryException);
+  }
+
+  {
+    auto obj = Try<int>(make_exception_wrapper<int>(-3));
+    EXPECT_EQ(-3, *obj.exception().get_exception<int>());
+    EXPECT_EQ(-3, *std::move(obj).exception().get_exception<int>());
+    EXPECT_EQ(-3, *as_const(obj).exception().get_exception<int>());
+    EXPECT_EQ(-3, *std::move(as_const(obj)).exception().get_exception<int>());
+  }
+
+  {
+    auto obj = Try<void>();
+    using ActualML = decltype(obj.exception());
+    using ActualMR = decltype(std::move(obj).exception());
+    using ActualCL = decltype(as_const(obj).exception());
+    using ActualCR = decltype(std::move(as_const(obj)).exception());
+    EXPECT_TRUE((std::is_same<ML, ActualML>::value));
+    EXPECT_TRUE((std::is_same<MR, ActualMR>::value));
+    EXPECT_TRUE((std::is_same<CL, ActualCL>::value));
+    EXPECT_TRUE((std::is_same<CR, ActualCR>::value));
+  }
+
+  {
+    auto obj = Try<void>();
+    EXPECT_THROW(obj.exception(), TryException);
+    EXPECT_THROW(std::move(obj).exception(), TryException);
+    EXPECT_THROW(as_const(obj).exception(), TryException);
+    EXPECT_THROW(std::move(as_const(obj)).exception(), TryException);
+  }
+
+  {
+    auto obj = Try<void>(make_exception_wrapper<int>(-3));
+    EXPECT_EQ(-3, *obj.exception().get_exception<int>());
+    EXPECT_EQ(-3, *std::move(obj).exception().get_exception<int>());
+    EXPECT_EQ(-3, *as_const(obj).exception().get_exception<int>());
+    EXPECT_EQ(-3, *std::move(as_const(obj)).exception().get_exception<int>());
+  }
 }
 
 template <typename E>
@@ -194,4 +393,93 @@ TEST(Try, tryGetExceptionObject) {
     EXPECT_EQ(nullptr, t.tryGetExceptionObject<std::runtime_error>());
     EXPECT_EQ(num, t.tryGetExceptionObject<int>());
   }
+}
+
+TEST(Try, withException) {
+  auto ew = make_exception_wrapper<std::range_error>("oops");
+
+  {
+    auto t = Try<bool>(true);
+    EXPECT_FALSE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException([](std::runtime_error&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error&) {}));
+  }
+
+  {
+    auto t = Try<bool>(ew);
+    EXPECT_TRUE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_TRUE(t.withException([](std::runtime_error&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error&) {}));
+  }
+
+  {
+    auto t = Try<void>();
+    EXPECT_FALSE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException([](std::runtime_error&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error&) {}));
+  }
+
+  {
+    auto t = Try<void>(ew);
+    EXPECT_TRUE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_TRUE(t.withException([](std::runtime_error&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error&) {}));
+  }
+
+  {
+    auto const t = Try<bool>(true);
+    EXPECT_FALSE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException([](std::runtime_error const&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error const&) {}));
+  }
+
+  {
+    auto const t = Try<bool>(ew);
+    EXPECT_TRUE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_TRUE(t.withException([](std::runtime_error const&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error const&) {}));
+  }
+
+  {
+    auto const t = Try<void>();
+    EXPECT_FALSE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException([](std::runtime_error const&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error const&) {}));
+  }
+
+  {
+    auto const t = Try<void>(ew);
+    EXPECT_TRUE(t.withException<std::runtime_error>([](auto&) {}));
+    EXPECT_FALSE(t.withException<std::logic_error>([](auto&) {}));
+    EXPECT_TRUE(t.withException([](std::runtime_error const&) {}));
+    EXPECT_FALSE(t.withException([](std::logic_error const&) {}));
+  }
+}
+
+TEST(Try, TestUnwrapTuple) {
+  auto original = std::make_tuple(Try<int>{1}, Try<int>{2});
+  EXPECT_EQ(std::make_tuple(1, 2), unwrapTryTuple(original));
+  EXPECT_EQ(std::make_tuple(1, 2), unwrapTryTuple(folly::copy(original)));
+  EXPECT_EQ(std::make_tuple(1, 2), unwrapTryTuple(folly::as_const(original)));
+}
+
+TEST(Try, TestUnwrapPair) {
+  auto original = std::make_pair(Try<int>{1}, Try<int>{2});
+  EXPECT_EQ(std::make_pair(1, 2), unwrapTryTuple(original));
+  EXPECT_EQ(std::make_pair(1, 2), unwrapTryTuple(folly::copy(original)));
+  EXPECT_EQ(std::make_pair(1, 2), unwrapTryTuple(folly::as_const(original)));
+}
+
+TEST(Try, TestUnwrapForward) {
+  using UPtr_t = std::unique_ptr<int>;
+  auto original = std::make_tuple(Try<UPtr_t>{std::make_unique<int>(1)});
+  auto unwrapped = unwrapTryTuple(std::move(original));
+  EXPECT_EQ(*std::get<0>(unwrapped), 1);
 }

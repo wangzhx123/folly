@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,8 @@ class Interleave : public Operator<Interleave<Container>> {
 
     static_assert(std::is_same<const Value&, ConstRefType>::value,
                   "Only matching types may be interleaved");
-  public:
+
+   public:
     explicit Generator(Source source,
                        const std::shared_ptr<const Container> container)
       : source_(std::move(source)),
@@ -111,7 +112,8 @@ class Zip : public Operator<Zip<Container>> {
                                    Generator<Value1,Source,Value2,Result>> {
     Source source_;
     const std::shared_ptr<const Container> container_;
-  public:
+
+   public:
     explicit Generator(Source source,
                        const std::shared_ptr<const Container> container)
       : source_(std::move(source)),

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 
 #include <glog/logging.h>
 
-#include <folly/detail/SlowFingerprint.h>
 #include <folly/Benchmark.h>
+#include <folly/detail/SlowFingerprint.h>
 #include <folly/portability/GTest.h>
 
 using namespace folly;

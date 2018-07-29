@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,15 @@
 
 #pragma once
 
-#include <folly/Portability.h>
+#include <type_traits>
 
-#if !FOLLY_X64 && !FOLLY_PPC64 && !FOLLY_A64
-# error "PackedSyncPtr is x64, ppc64 or aarch64 specific code."
+#include <glog/logging.h>
+
+#include <folly/Portability.h>
+#include <folly/synchronization/SmallLocks.h>
+
+#if !FOLLY_X64 && !FOLLY_PPC64 && !FOLLY_AARCH64
+#error "PackedSyncPtr is x64, ppc64 or aarch64 specific code."
 #endif
 
 /*
@@ -52,20 +57,16 @@
  * @author Jordan DeLong <delong.j@fb.com>
  */
 
-#include <folly/SmallLocks.h>
-#include <type_traits>
-#include <glog/logging.h>
-
 namespace folly {
 
-template<class T>
+template <class T>
 class PackedSyncPtr {
   // This just allows using this class even with T=void.  Attempting
   // to use the operator* or operator[] on a PackedSyncPtr<void> will
   // still properly result in a compile error.
   typedef typename std::add_lvalue_reference<T>::type reference;
 
-public:
+ public:
   /*
    * If you default construct one of these, you must call this init()
    * function before using it.
@@ -73,7 +74,7 @@ public:
    * (We are avoiding a constructor to ensure gcc allows us to put
    * this class in packed structures.)
    */
-  void init(T* initialPtr = 0, uint16_t initialExtra = 0) {
+  void init(T* initialPtr = nullptr, uint16_t initialExtra = 0) {
     auto intPtr = reinterpret_cast<uintptr_t>(initialPtr);
     CHECK(!(intPtr >> 48));
     data_.init(intPtr);
@@ -149,4 +150,4 @@ std::ostream& operator<<(std::ostream& os, const PackedSyncPtr<T>& ptr) {
   os << "PackedSyncPtr(" << ptr.get() << ", " << ptr.extra() << ")";
   return os;
 }
-}
+} // namespace folly

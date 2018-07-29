@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,6 +49,7 @@ class File {
 
   /**
    * Open and create a file object.  Throws on error.
+   * Owns the file descriptor implicitly.
    */
   explicit File(const char* name, int flags = O_RDONLY, mode_t mode = 0666);
   explicit File(
@@ -150,5 +151,4 @@ class File {
 
 void swap(File& a, File& b);
 
-
-}  // namespace folly
+} // namespace folly

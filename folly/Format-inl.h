@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,12 +27,13 @@
 
 #include <folly/Exception.h>
 #include <folly/FormatTraits.h>
+#include <folly/MapUtil.h>
 #include <folly/Traits.h>
 #include <folly/portability/Windows.h>
 
 // Ignore -Wformat-nonliteral warnings within this file
 FOLLY_PUSH_WARNING
-FOLLY_GCC_DISABLE_WARNING("-Wformat-nonliteral")
+FOLLY_GNU_DISABLE_WARNING("-Wformat-nonliteral")
 
 namespace folly {
 
@@ -41,10 +42,10 @@ namespace detail {
 // Updates the end of the buffer after the comma separators have been added.
 void insertThousandsGroupingUnsafe(char* start_buffer, char** end_buffer);
 
-extern const char formatHexUpper[256][2];
-extern const char formatHexLower[256][2];
-extern const char formatOctal[512][3];
-extern const char formatBinary[256][8];
+extern const std::array<std::array<char, 2>, 256> formatHexUpper;
+extern const std::array<std::array<char, 2>, 256> formatHexLower;
+extern const std::array<std::array<char, 3>, 512> formatOctal;
+extern const std::array<std::array<char, 8>, 256> formatBinary;
 
 const size_t kMaxHexLength = 2 * sizeof(uintmax_t);
 const size_t kMaxOctalLength = 3 * sizeof(uintmax_t);
@@ -60,8 +61,11 @@ const size_t kMaxBinaryLength = 8 * sizeof(uintmax_t);
  * [buf+begin, buf+bufLen).
  */
 template <class Uint>
-size_t
-uintToHex(char* buffer, size_t bufLen, Uint v, const char (&repr)[256][2]) {
+size_t uintToHex(
+    char* buffer,
+    size_t bufLen,
+    Uint v,
+    std::array<std::array<char, 2>, 256> const& repr) {
   // 'v >>= 7, v >>= 1' is no more than a work around to get rid of shift size
   // warning when Uint = uint8_t (it's false as v >= 256 implies sizeof(v) > 1).
   for (; !less_than<unsigned, 256>(v); v >>= 7, v >>= 1) {
@@ -157,9 +161,7 @@ template <class Derived, bool containerMode, class... Args>
 BaseFormatter<Derived, containerMode, Args...>::BaseFormatter(
     StringPiece str,
     Args&&... args)
-    : str_(str),
-      values_(FormatValue<typename std::decay<Args>::type>(
-          std::forward<Args>(args))...) {}
+    : str_(str), values_(std::forward<Args>(args)...) {}
 
 template <class Derived, bool containerMode, class... Args>
 template <class Output>
@@ -182,7 +184,7 @@ void BaseFormatter<Derived, containerMode, Args...>::operator()(
       p = q;
 
       if (p == end || *p != '}') {
-        throw BadFormatArg("folly::format: single '}' in format string");
+        throwBadFormatArg("folly::format: single '}' in format string");
       }
       ++p;
     }
@@ -204,7 +206,7 @@ void BaseFormatter<Derived, containerMode, Args...>::operator()(
     p = q + 1;
 
     if (p == end) {
-      throw BadFormatArg("folly::format: '}' at end of format string");
+      throwBadFormatArg("folly::format: '}' at end of format string");
     }
 
     // "{{" -> "{"
@@ -217,7 +219,7 @@ void BaseFormatter<Derived, containerMode, Args...>::operator()(
     // Format string
     q = static_cast<const char*>(memchr(p, '}', size_t(end - p)));
     if (q == nullptr) {
-      throw BadFormatArg("folly::format: missing ending '}'");
+      throwBadFormatArg("folly::format: missing ending '}'");
     }
     FormatArg arg(StringPiece(p, q));
     p = q + 1;
@@ -266,7 +268,7 @@ void BaseFormatter<Derived, containerMode, Args...>::operator()(
     }
 
     if (hasDefaultArgIndex && hasExplicitArgIndex) {
-      throw BadFormatArg(
+      throwBadFormatArg(
           "folly::format: may not have both default and explicit arg indexes");
     }
 
@@ -292,19 +294,15 @@ namespace format_value {
 template <class FormatCallback>
 void formatString(StringPiece val, FormatArg& arg, FormatCallback& cb) {
   if (arg.width != FormatArg::kDefaultWidth && arg.width < 0) {
-    throw BadFormatArg("folly::format: invalid width");
+    throwBadFormatArg("folly::format: invalid width");
   }
   if (arg.precision != FormatArg::kDefaultPrecision && arg.precision < 0) {
-    throw BadFormatArg("folly::format: invalid precision");
+    throwBadFormatArg("folly::format: invalid precision");
   }
-
-  // XXX: clang should be smart enough to not need the two static_cast<size_t>
-  // uses below given the above checks. If clang ever becomes that smart, we
-  // should remove the otherwise unnecessary warts.
 
   if (arg.precision != FormatArg::kDefaultPrecision &&
       val.size() > static_cast<size_t>(arg.precision)) {
-    val.reset(val.data(), size_t(arg.precision));
+    val.reset(val.data(), static_cast<size_t>(arg.precision));
   }
 
   constexpr int padBufSize = 128;
@@ -684,7 +682,7 @@ class FormatValue<float> {
   float val_;
 };
 
-// Sring-y types (implicitly convertible to StringPiece, except char*)
+// String-y types (implicitly convertible to StringPiece, except char*)
 template <class T>
 class FormatValue<
     T,
@@ -937,7 +935,7 @@ template <>
 struct KeyFromStringPiece<fbstring> : public FormatTraitsBase {
   typedef fbstring key_type;
   static fbstring convert(StringPiece s) {
-    return s.toFbstring();
+    return s.to<fbstring>();
   }
 };
 
@@ -956,7 +954,10 @@ struct KeyableTraitsAssoc : public FormatTraitsBase {
   typedef typename T::key_type key_type;
   typedef typename T::value_type::second_type value_type;
   static const value_type& at(const T& map, StringPiece key) {
-    return map.at(KeyFromStringPiece<key_type>::convert(key));
+    if (auto ptr = get_ptr(map, KeyFromStringPiece<key_type>::convert(key))) {
+      return *ptr;
+    }
+    detail::throwFormatKeyNotFoundException(key);
   }
   static const value_type&
   at(const T& map, StringPiece key, const value_type& dflt) {

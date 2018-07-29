@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,22 +16,22 @@
 
 #include <folly/Random.h>
 
+#include <array>
 #include <atomic>
 #include <mutex>
 #include <random>
-#include <array>
 
-#include <folly/CallOnce.h>
 #include <folly/File.h>
 #include <folly/FileUtil.h>
 #include <folly/SingletonThreadLocal.h>
 #include <folly/ThreadLocal.h>
 #include <folly/portability/SysTime.h>
 #include <folly/portability/Unistd.h>
+#include <folly/synchronization/CallOnce.h>
 #include <glog/logging.h>
 
 #ifdef _MSC_VER
-# include <wincrypt.h>
+#include <wincrypt.h> // @manual
 #endif
 
 namespace folly {
@@ -129,25 +129,15 @@ struct RandomTag {};
 } // namespace
 
 void Random::secureRandom(void* data, size_t size) {
-  static SingletonThreadLocal<BufferedRandomDevice, RandomTag>
-      bufferedRandomDevice;
-  bufferedRandomDevice.get().get(data, size);
+  using Single = SingletonThreadLocal<BufferedRandomDevice, RandomTag>;
+  Single::get().get(data, size);
 }
 
-class ThreadLocalPRNG::LocalInstancePRNG {
- public:
-  LocalInstancePRNG() : rng(Random::create()) {}
-
-  Random::DefaultGenerator rng;
-};
-
-ThreadLocalPRNG::ThreadLocalPRNG() {
-  static SingletonThreadLocal<ThreadLocalPRNG::LocalInstancePRNG, RandomTag>
-      localInstancePRNG;
-  local_ = &localInstancePRNG.get();
+ThreadLocalPRNG::result_type ThreadLocalPRNG::operator()() {
+  struct Wrapper {
+    Random::DefaultGenerator object{Random::create()};
+  };
+  using Single = SingletonThreadLocal<Wrapper, RandomTag>;
+  return Single::get().object();
 }
-
-uint32_t ThreadLocalPRNG::getImpl(LocalInstancePRNG* local) {
-  return local->rng();
-}
-}
+} // namespace folly

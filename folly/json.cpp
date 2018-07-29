@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include <folly/json.h>
 
 #include <algorithm>
@@ -22,13 +21,13 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/next_prior.hpp>
-#include <folly/Bits.h>
-#include <folly/Portability.h>
 
 #include <folly/Conv.h>
+#include <folly/Portability.h>
 #include <folly/Range.h>
 #include <folly/String.h>
 #include <folly/Unicode.h>
+#include <folly/lang/Bits.h>
 #include <folly/portability/Constexpr.h>
 
 namespace folly {
@@ -85,7 +84,7 @@ struct Printer {
     }
   }
 
-private:
+ private:
   void printKV(const std::pair<const dynamic, dynamic>& p) const {
     if (!opts_.allow_non_string_keys && !p.first.isString()) {
       throw std::runtime_error("folly::toJson: JSON object key was not a "
@@ -156,7 +155,7 @@ private:
     out_ += ']';
   }
 
-private:
+ private:
   void outdent() const {
     if (indentLevel_) {
       --*indentLevel_;
@@ -176,18 +175,18 @@ private:
   }
 
   void mapColon() const {
-    out_ += indentLevel_ ? " : " : ":";
+    out_ += indentLevel_ ? ": " : ":";
   }
 
-private:
- std::string& out_;
- unsigned* const indentLevel_;
- serialization_opts const& opts_;
+ private:
+  std::string& out_;
+  unsigned* const indentLevel_;
+  serialization_opts const& opts_;
 };
 
 //////////////////////////////////////////////////////////////////////
 
-struct ParseError : std::runtime_error {
+struct FOLLY_EXPORT ParseError : std::runtime_error {
   explicit ParseError(
       unsigned int line,
       std::string const& context,
@@ -217,7 +216,7 @@ struct Input {
 
   // Parse ahead for as long as the supplied predicate is satisfied,
   // returning a range of what was skipped.
-  template<class Predicate>
+  template <class Predicate>
   StringPiece skipWhile(const Predicate& p) {
     std::size_t skipped = 0;
     for (; skipped < range_.size(); ++skipped) {
@@ -273,7 +272,7 @@ struct Input {
     storeCurrent();
   }
 
-  template<class T>
+  template <class T>
   T extract() {
     try {
       return to<T>(&range_);
@@ -319,7 +318,7 @@ struct Input {
     current_ = range_.empty() ? EOF : range_.front();
   }
 
-private:
+ private:
   StringPiece range_;
   json::serialization_opts const& opts_;
   unsigned lineNum_;
@@ -597,7 +596,7 @@ dynamic parseValue(Input& in) {
          in.error("expected json value");
 }
 
-}
+} // namespace
 
 //////////////////////////////////////////////////////////////////////
 
@@ -672,7 +671,7 @@ void escapeString(
       if (avail >= 8) {
         word = folly::loadUnaligned<uint64_t>(firstEsc);
       } else {
-        memcpy(static_cast<void*>(&word), firstEsc, avail);
+        word = folly::partialLoadUnaligned<uint64_t>(firstEsc, avail);
       }
       auto prefix = firstEscapableInWord(word);
       DCHECK_LE(prefix, avail);
@@ -813,7 +812,7 @@ std::string stripComments(StringPiece jsonC) {
   return result;
 }
 
-}
+} // namespace json
 
 //////////////////////////////////////////////////////////////////////
 
@@ -868,4 +867,4 @@ void PrintTo(const dynamic& dyn, std::ostream* os) {
 
 //////////////////////////////////////////////////////////////////////
 
-}
+} // namespace folly

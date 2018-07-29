@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 
 #pragma once
+
+#include <cstdint>
 
 // This must come before the OpenSSL includes.
 #include <folly/portability/Windows.h>
@@ -108,6 +110,7 @@ int X509_get_signature_nid(X509* cert);
 int SSL_CTX_up_ref(SSL_CTX* session);
 int SSL_SESSION_up_ref(SSL_SESSION* session);
 int X509_up_ref(X509* x);
+int X509_STORE_up_ref(X509_STORE* v);
 int EVP_PKEY_up_ref(EVP_PKEY* evp);
 void RSA_get0_key(
     const RSA* r,
@@ -115,13 +118,29 @@ void RSA_get0_key(
     const BIGNUM** e,
     const BIGNUM** d);
 RSA* EVP_PKEY_get0_RSA(EVP_PKEY* pkey);
+DSA* EVP_PKEY_get0_DSA(EVP_PKEY* pkey);
+DH* EVP_PKEY_get0_DH(EVP_PKEY* pkey);
 EC_KEY* EVP_PKEY_get0_EC_KEY(EVP_PKEY* pkey);
 #endif
 
 #if !FOLLY_OPENSSL_IS_110
+BIO_METHOD* BIO_meth_new(int type, const char* name);
 void BIO_meth_free(BIO_METHOD* biom);
 int BIO_meth_set_read(BIO_METHOD* biom, int (*read)(BIO*, char*, int));
 int BIO_meth_set_write(BIO_METHOD* biom, int (*write)(BIO*, const char*, int));
+int BIO_meth_set_puts(BIO_METHOD* biom, int (*bputs)(BIO*, const char*));
+int BIO_meth_set_gets(BIO_METHOD* biom, int (*bgets)(BIO*, char*, int));
+int BIO_meth_set_ctrl(BIO_METHOD* biom, long (*ctrl)(BIO*, int, long, void*));
+int BIO_meth_set_create(BIO_METHOD* biom, int (*create)(BIO*));
+int BIO_meth_set_destroy(BIO_METHOD* biom, int (*destroy)(BIO*));
+
+void BIO_set_data(BIO* bio, void* ptr);
+void* BIO_get_data(BIO* bio);
+void BIO_set_init(BIO* bio, int init);
+void BIO_set_shutdown(BIO* bio, int shutdown);
+
+const SSL_METHOD* TLS_server_method(void);
+const SSL_METHOD* TLS_client_method(void);
 
 const char* SSL_SESSION_get0_hostname(const SSL_SESSION* s);
 unsigned char* ASN1_STRING_get0_data(const ASN1_STRING* x);
@@ -135,24 +154,71 @@ void HMAC_CTX_free(HMAC_CTX* ctx);
 unsigned long SSL_SESSION_get_ticket_lifetime_hint(const SSL_SESSION* s);
 int SSL_SESSION_has_ticket(const SSL_SESSION* s);
 int DH_set0_pqg(DH* dh, BIGNUM* p, BIGNUM* q, BIGNUM* g);
+void DH_get0_pqg(
+    const DH* dh,
+    const BIGNUM** p,
+    const BIGNUM** q,
+    const BIGNUM** g);
+void DH_get0_key(const DH* dh, const BIGNUM** pub_key, const BIGNUM** priv_key);
+
+void DSA_get0_pqg(
+    const DSA* dsa,
+    const BIGNUM** p,
+    const BIGNUM** q,
+    const BIGNUM** g);
+void DSA_get0_key(
+    const DSA* dsa,
+    const BIGNUM** pub_key,
+    const BIGNUM** priv_key);
+
+STACK_OF(X509_OBJECT) * X509_STORE_get0_objects(X509_STORE* store);
 
 X509* X509_STORE_CTX_get0_cert(X509_STORE_CTX* ctx);
 STACK_OF(X509) * X509_STORE_CTX_get0_chain(X509_STORE_CTX* ctx);
 STACK_OF(X509) * X509_STORE_CTX_get0_untrusted(X509_STORE_CTX* ctx);
+bool RSA_set0_key(RSA* r, BIGNUM* n, BIGNUM* e, BIGNUM* d);
+void RSA_get0_factors(const RSA* r, const BIGNUM** p, const BIGNUM** q);
+void RSA_get0_crt_params(
+    const RSA* r,
+    const BIGNUM** dmp1,
+    const BIGNUM** dmq1,
+    const BIGNUM** iqmp);
+int ECDSA_SIG_set0(ECDSA_SIG* sig, BIGNUM* r, BIGNUM* s);
+void ECDSA_SIG_get0(const ECDSA_SIG* sig, const BIGNUM** pr, const BIGNUM** ps);
+
+using OPENSSL_INIT_SETTINGS = void;
+int OPENSSL_init_ssl(uint64_t opts, const OPENSSL_INIT_SETTINGS* settings);
+void OPENSSL_cleanup();
+
+const ASN1_INTEGER* X509_REVOKED_get0_serialNumber(const X509_REVOKED* r);
+const ASN1_TIME* X509_REVOKED_get0_revocationDate(const X509_REVOKED* r);
+
+uint32_t X509_get_extension_flags(X509* x);
+uint32_t X509_get_key_usage(X509* x);
+uint32_t X509_get_extended_key_usage(X509* x);
+
+int X509_OBJECT_get_type(const X509_OBJECT* obj);
+X509* X509_OBJECT_get0_X509(const X509_OBJECT* obj);
+
+const ASN1_TIME* X509_CRL_get0_lastUpdate(const X509_CRL* crl);
+const ASN1_TIME* X509_CRL_get0_nextUpdate(const X509_CRL* crl);
+
 #endif
 
 #if FOLLY_OPENSSL_IS_110
 // Note: this was a type and has been fixed upstream, so the next 1.1.0
 // minor version upgrade will need to remove this
 #define OPENSSL_lh_new OPENSSL_LH_new
+
+// OpenSSL v1.1.0 removed support for SSLv2, and also removed the define that
+// indicates it isn't supported.
+#define OPENSSL_NO_SSL2
 #endif
-}
-}
-}
+} // namespace ssl
+} // namespace portability
+} // namespace folly
 
 FOLLY_PUSH_WARNING
-#if __CLANG_PREREQ(3, 0)
-FOLLY_GCC_DISABLE_WARNING("-Wheader-hygiene")
-#endif
+FOLLY_CLANG_DISABLE_WARNING("-Wheader-hygiene")
 /* using override */ using namespace folly::portability::ssl;
 FOLLY_POP_WARNING

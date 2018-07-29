@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 #include <map>
 #include <vector>
 
-#include <folly/ApplyTuple.h>
+#include <folly/functional/ApplyTuple.h>
 #include <folly/gen/String.h>
 #include <folly/portability/GTest.h>
 
@@ -40,7 +40,7 @@ TEST(StringGen, EmptySplit) {
   {
     auto input = "";
     auto expected = vec{};
-    EXPECT_EQ(expected, split("", ',') | collect);
+    EXPECT_EQ(expected, split(input, ',') | collect);
   }
 
   // The last delimiter is eaten, just like std::getline

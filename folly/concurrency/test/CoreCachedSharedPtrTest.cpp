@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,8 +65,9 @@ void parallelRun(Operation op, size_t numThreads, size_t iters) {
     });
   }
 
-  for (auto& t : threads)
+  for (auto& t : threads) {
     t.join();
+}
 }
 
 void benchmarkSharedPtrCopy(size_t numThreads, size_t iters) {
@@ -80,6 +81,13 @@ void benchmarkWeakPtrLock(size_t numThreads, size_t iters) {
   parallelRun([&] { return wp.lock(); }, numThreads, iters);
 }
 
+void benchmarkAtomicSharedPtrCopy(size_t numThreads, size_t iters) {
+  auto s = std::make_shared<int>(1);
+  folly::atomic_shared_ptr<int> p;
+  p.store(s);
+  parallelRun([&] { return p.load(); }, numThreads, iters);
+}
+
 void benchmarkCoreCachedSharedPtrGet(size_t numThreads, size_t iters) {
   folly::CoreCachedSharedPtr<int> p(std::make_shared<int>(1));
   parallelRun([&] { return p.get(); }, numThreads, iters);
@@ -91,6 +99,11 @@ void benchmarkCoreCachedWeakPtrLock(size_t numThreads, size_t iters) {
   parallelRun([&] { return wp.get().lock(); }, numThreads, iters);
 }
 
+void benchmarkAtomicCoreCachedSharedPtrGet(size_t numThreads, size_t iters) {
+  folly::AtomicCoreCachedSharedPtr<int> p(std::make_shared<int>(1));
+  parallelRun([&] { return p.get(); }, numThreads, iters);
+}
+
 } // namespace
 
 BENCHMARK(SharedPtrSingleThread, n) {
@@ -99,11 +112,17 @@ BENCHMARK(SharedPtrSingleThread, n) {
 BENCHMARK(WeakPtrSingleThread, n) {
   benchmarkWeakPtrLock(1, n);
 }
+BENCHMARK(AtomicSharedPtrSingleThread, n) {
+  benchmarkAtomicSharedPtrCopy(1, n);
+}
 BENCHMARK(CoreCachedSharedPtrSingleThread, n) {
   benchmarkCoreCachedSharedPtrGet(1, n);
 }
 BENCHMARK(CoreCachedWeakPtrSingleThread, n) {
   benchmarkCoreCachedWeakPtrLock(1, n);
+}
+BENCHMARK(AtomicCoreCachedSharedPtrSingleThread, n) {
+  benchmarkAtomicCoreCachedSharedPtrGet(1, n);
 }
 
 BENCHMARK_DRAW_LINE();
@@ -114,11 +133,17 @@ BENCHMARK(SharedPtr4Threads, n) {
 BENCHMARK(WeakPtr4Threads, n) {
   benchmarkWeakPtrLock(4, n);
 }
+BENCHMARK(AtomicSharedPtr4Threads, n) {
+  benchmarkAtomicSharedPtrCopy(4, n);
+}
 BENCHMARK(CoreCachedSharedPtr4Threads, n) {
   benchmarkCoreCachedSharedPtrGet(4, n);
 }
 BENCHMARK(CoreCachedWeakPtr4Threads, n) {
   benchmarkCoreCachedWeakPtrLock(4, n);
+}
+BENCHMARK(AtomicCoreCachedSharedPtr4Threads, n) {
+  benchmarkAtomicCoreCachedSharedPtrGet(4, n);
 }
 
 BENCHMARK_DRAW_LINE();
@@ -129,11 +154,38 @@ BENCHMARK(SharedPtr16Threads, n) {
 BENCHMARK(WeakPtr16Threads, n) {
   benchmarkWeakPtrLock(16, n);
 }
+BENCHMARK(AtomicSharedPtr16Threads, n) {
+  benchmarkAtomicSharedPtrCopy(16, n);
+}
 BENCHMARK(CoreCachedSharedPtr16Threads, n) {
   benchmarkCoreCachedSharedPtrGet(16, n);
 }
 BENCHMARK(CoreCachedWeakPtr16Threads, n) {
   benchmarkCoreCachedWeakPtrLock(16, n);
+}
+BENCHMARK(AtomicCoreCachedSharedPtr16Threads, n) {
+  benchmarkAtomicCoreCachedSharedPtrGet(16, n);
+}
+
+BENCHMARK_DRAW_LINE();
+
+BENCHMARK(SharedPtrSingleThreadReset, n) {
+  auto p = std::make_shared<int>(1);
+  parallelRun([&] { p = std::make_shared<int>(1); }, 1, n);
+}
+BENCHMARK(AtomicSharedPtrSingleThreadReset, n) {
+  auto s = std::make_shared<int>(1);
+  folly::atomic_shared_ptr<int> p;
+  p.store(s);
+  parallelRun([&] { p.store(std::make_shared<int>(1)); }, 1, n);
+}
+BENCHMARK(CoreCachedSharedPtrSingleThreadReset, n) {
+  folly::CoreCachedSharedPtr<int> p(std::make_shared<int>(1));
+  parallelRun([&] { p.reset(std::make_shared<int>(1)); }, 1, n);
+}
+BENCHMARK(AtomicCoreCachedSharedPtrSingleThreadReset, n) {
+  folly::AtomicCoreCachedSharedPtr<int> p(std::make_shared<int>(1));
+  parallelRun([&] { p.reset(std::make_shared<int>(1)); }, 1, n);
 }
 
 int main(int argc, char** argv) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,9 +25,11 @@
 class Exception : public std::exception {
  public:
   explicit Exception(const std::string& value) : value_(value) {}
-  ~Exception(void) noexcept override {}
+  ~Exception() noexcept override {}
 
-  const char* what(void) const noexcept override { return value_.c_str(); }
+  const char* what() const noexcept override {
+    return value_.c_str();
+  }
 
  private:
   std::string value_;
@@ -75,8 +77,7 @@ void TestClass::doNothing() {
 VirtualClass::~VirtualClass() {
 }
 
-void VirtualClass::doNothing() {
-};
+void VirtualClass::doNothing() {}
 
 LargeClass::LargeClass() {
   // Suppress unused field warning

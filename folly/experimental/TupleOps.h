@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,12 +66,13 @@ struct TemplateRange<
 // where k = min(tuple_size<T>::value - start, n)
 // (that is, it's a TemplateSeq of at most n elements, but won't extend
 // past the end of the given tuple)
-template <class T,
-          std::size_t start = 0,
-          std::size_t n = std::numeric_limits<std::size_t>::max(),
-          std::size_t size =
-            std::tuple_size<typename std::remove_reference<T>::type>::value,
-          class Enable = typename std::enable_if<(start <= size)>::type>
+template <
+    class T,
+    std::size_t start = 0,
+    std::size_t n = std::numeric_limits<std::size_t>::max(),
+    std::size_t size =
+        std::tuple_size<typename std::remove_reference<T>::type>::value,
+    class Enable = typename std::enable_if<(start <= size)>::type>
 struct TemplateTupleRange {
   using type = typename TemplateRange<
       std::size_t,
@@ -92,7 +93,7 @@ struct TupleSelect<TemplateSeq<std::size_t, Ns...>> {
   }
 };
 
-}  // namespace detail
+} // namespace detail
 
 // Return a tuple consisting of the elements at a range of indices.
 //
@@ -121,4 +122,4 @@ auto tuplePrepend(T&& car, U&& cdr)
                         std::forward<U>(cdr));
 }
 
-}  // namespaces
+} // namespace folly

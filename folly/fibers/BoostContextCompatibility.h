@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,8 @@
  * Boost 1.61:
  * https://github.com/boostorg/context/blob/boost-1.61.0/include/boost/context/detail/fcontext.hpp
  */
+
+#include <folly/Function.h>
 
 namespace folly {
 namespace fibers {
@@ -97,7 +99,8 @@ class FiberImpl {
 
   void deactivate() {
 #if BOOST_VERSION >= 106100
-    auto transfer = boost::context::detail::jump_fcontext(mainContext_, 0);
+    auto transfer =
+        boost::context::detail::jump_fcontext(mainContext_, nullptr);
     mainContext_ = transfer.fctx;
     auto context = reinterpret_cast<intptr_t>(transfer.data);
 #elif BOOST_VERSION >= 105600
@@ -130,5 +133,5 @@ class FiberImpl {
   FiberContext fiberContext_;
   MainContext mainContext_;
 };
-}
-} // folly::fibers
+} // namespace fibers
+} // namespace folly

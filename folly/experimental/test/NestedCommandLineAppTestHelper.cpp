@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ void foo(const po::variables_map& options,
   }
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char *argv[]) {
   folly::NestedCommandLineApp app("", "0.1", "", "", init);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,16 @@
 
 #pragma once
 
-#include <folly/detail/TryDetail.h>
+#include <folly/Utility.h>
+
 #include <stdexcept>
+#include <tuple>
 
 namespace folly {
 
 template <class T>
-Try<T>::Try(Try<T>&& t) noexcept : contains_(t.contains_) {
+Try<T>::Try(Try<T>&& t) noexcept(std::is_nothrow_move_constructible<T>::value)
+    : contains_(t.contains_) {
   if (contains_ == Contains::VALUE) {
     new (&value_)T(std::move(t.value_));
   } else if (contains_ == Contains::EXCEPTION) {
@@ -32,8 +35,9 @@ Try<T>::Try(Try<T>&& t) noexcept : contains_(t.contains_) {
 
 template <class T>
 template <class T2>
-Try<T>::Try(typename std::enable_if<std::is_same<Unit, T2>::value,
-                                    Try<void> const&>::type t)
+Try<T>::Try(typename std::enable_if<
+            std::is_same<Unit, T2>::value,
+            Try<void> const&>::type t) noexcept
     : contains_(Contains::NOTHING) {
   if (t.hasValue()) {
     contains_ = Contains::VALUE;
@@ -45,7 +49,8 @@ Try<T>::Try(typename std::enable_if<std::is_same<Unit, T2>::value,
 }
 
 template <class T>
-Try<T>& Try<T>::operator=(Try<T>&& t) noexcept {
+Try<T>& Try<T>::operator=(Try<T>&& t) noexcept(
+    std::is_nothrow_move_constructible<T>::value) {
   if (this == &t) {
     return *this;
   }
@@ -61,7 +66,8 @@ Try<T>& Try<T>::operator=(Try<T>&& t) noexcept {
 }
 
 template <class T>
-Try<T>::Try(const Try<T>& t) {
+Try<T>::Try(const Try<T>& t) noexcept(
+    std::is_nothrow_copy_constructible<T>::value) {
   static_assert(
       std::is_copy_constructible<T>::value,
       "T must be copyable for Try<T> to be copyable");
@@ -74,7 +80,8 @@ Try<T>::Try(const Try<T>& t) {
 }
 
 template <class T>
-Try<T>& Try<T>::operator=(const Try<T>& t) {
+Try<T>& Try<T>::operator=(const Try<T>& t) noexcept(
+    std::is_nothrow_copy_constructible<T>::value) {
   static_assert(
       std::is_copy_constructible<T>::value,
       "T must be copyable for Try<T> to be copyable");
@@ -116,13 +123,20 @@ const T& Try<T>::value() const & {
 }
 
 template <class T>
+const T&& Try<T>::value() const && {
+  throwIfFailed();
+  return std::move(value_);
+}
+
+template <class T>
 void Try<T>::throwIfFailed() const {
-  if (contains_ != Contains::VALUE) {
-    if (contains_ == Contains::EXCEPTION) {
+  switch (contains_) {
+    case Contains::VALUE:
+      return;
+    case Contains::EXCEPTION:
       e_.throw_exception();
-    } else {
-      throw UsingUninitializedTry();
-    }
+    default:
+      throw_exception<UsingUninitializedTry>();
   }
 }
 
@@ -132,21 +146,12 @@ void Try<void>::throwIfFailed() const {
   }
 }
 
-template <typename T>
-inline T moveFromTry(Try<T>& t) {
-  return std::move(t.value());
-}
-
-inline void moveFromTry(Try<void>& t) {
-  return t.value();
-}
-
 template <typename F>
 typename std::enable_if<
-  !std::is_same<typename std::result_of<F()>::type, void>::value,
-  Try<typename std::result_of<F()>::type>>::type
+    !std::is_same<invoke_result_t<F>, void>::value,
+    Try<invoke_result_t<F>>>::type
 makeTryWith(F&& f) {
-  typedef typename std::result_of<F()>::type ResultType;
+  using ResultType = invoke_result_t<F>;
   try {
     return Try<ResultType>(f());
   } catch (std::exception& e) {
@@ -157,10 +162,9 @@ makeTryWith(F&& f) {
 }
 
 template <typename F>
-typename std::enable_if<
-  std::is_same<typename std::result_of<F()>::type, void>::value,
-  Try<void>>::type
-makeTryWith(F&& f) {
+typename std::
+    enable_if<std::is_same<invoke_result_t<F>, void>::value, Try<void>>::type
+    makeTryWith(F&& f) {
   try {
     f();
     return Try<void>();
@@ -171,10 +175,31 @@ makeTryWith(F&& f) {
   }
 }
 
-template <typename... Ts>
-std::tuple<Ts...> unwrapTryTuple(std::tuple<folly::Try<Ts>...>&& ts) {
-  return detail::TryTuple<Ts...>::unwrap(
-      std::forward<std::tuple<folly::Try<Ts>...>>(ts));
+namespace try_detail {
+
+/**
+ * Trait that removes the layer of Try abstractions from the passed in type
+ */
+template <typename Type>
+struct RemoveTry;
+template <template <typename...> class TupleType, typename... Types>
+struct RemoveTry<TupleType<folly::Try<Types>...>> {
+  using type = TupleType<Types...>;
+};
+
+template <std::size_t... Indices, typename Tuple>
+auto unwrapTryTupleImpl(folly::index_sequence<Indices...>, Tuple&& instance) {
+  using std::get;
+  using ReturnType = typename RemoveTry<typename std::decay<Tuple>::type>::type;
+  return ReturnType{(get<Indices>(std::forward<Tuple>(instance)).value())...};
+}
+} // namespace try_detail
+
+template <typename Tuple>
+auto unwrapTryTuple(Tuple&& instance) {
+  using TupleDecayed = typename std::decay<Tuple>::type;
+  using Seq = folly::make_index_sequence<std::tuple_size<TupleDecayed>::value>;
+  return try_detail::unwrapTryTupleImpl(Seq{}, std::forward<Tuple>(instance));
 }
 
-} // folly
+} // namespace folly

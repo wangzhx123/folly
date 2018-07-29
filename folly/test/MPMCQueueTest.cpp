@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@
 #include <thread>
 #include <utility>
 
-FOLLY_ASSUME_FBVECTOR_COMPATIBLE_1(boost::intrusive_ptr);
+FOLLY_ASSUME_FBVECTOR_COMPATIBLE_1(boost::intrusive_ptr)
 
 using namespace folly;
 using namespace detail;
@@ -46,7 +46,7 @@ using std::vector;
 
 typedef DeterministicSchedule DSched;
 
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 void run_mt_sequencer_thread(
     int numThreads,
     int numOps,
@@ -63,7 +63,7 @@ void run_mt_sequencer_thread(
   }
 }
 
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 void run_mt_sequencer_test(int numThreads, int numOps, uint32_t init) {
   TurnSequencer<Atom> seq(init);
   Atom<uint32_t> spinThreshold(0);
@@ -235,7 +235,7 @@ TEST(MPMCQueue, enq_capacity_test) {
   }
 }
 
-template <template<typename> class Atom, bool Dynamic = false>
+template <template <typename> class Atom, bool Dynamic = false>
 void runTryEnqDeqThread(
     int numThreads,
     int n, /*numOps*/
@@ -262,7 +262,7 @@ void runTryEnqDeqThread(
   sum += threadSum;
 }
 
-template <template<typename> class Atom, bool Dynamic = false>
+template <template <typename> class Atom, bool Dynamic = false>
 void runTryEnqDeqTest(int numThreads, int numOps) {
   // write and read aren't linearizable, so we don't have
   // hard guarantees on their individual behavior.  We can still test
@@ -348,7 +348,7 @@ TEST(MPMCQueue, mt_try_enq_deq_deterministic) {
 
 uint64_t nowMicro() {
   timeval tv;
-  gettimeofday(&tv, 0);
+  gettimeofday(&tv, nullptr);
   return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
 }
 
@@ -381,9 +381,10 @@ struct WriteCaller : public WriteMethodCaller<Q> {
   string methodName() override { return "write"; }
 };
 
-template <typename Q,
-          class Clock = steady_clock,
-          class Duration = typename Clock::duration>
+template <
+    typename Q,
+    class Clock = steady_clock,
+    class Duration = typename Clock::duration>
 struct TryWriteUntilCaller : public WriteMethodCaller<Q> {
   const Duration duration_;
   explicit TryWriteUntilCaller(Duration&& duration) : duration_(duration) {}
@@ -738,7 +739,7 @@ uint64_t runNeverFailTest(int numThreads, int numOps) {
   return nowMicro() - beginMicro;
 }
 
-template <template<typename> class Atom, bool Dynamic = false>
+template <template <typename> class Atom, bool Dynamic = false>
 void runMtNeverFail(std::vector<int>& nts, int n) {
   for (int nt : nts) {
     uint64_t elapsed = runNeverFailTest<Atom, Dynamic>(nt, n);
@@ -764,7 +765,7 @@ TEST(MPMCQueue, mt_never_fail_emulated_futex) {
   runMtNeverFail<EmulatedFutexAtomic>(nts, n);
 }
 
-template<bool Dynamic = false>
+template <bool Dynamic = false>
 void runMtNeverFailDeterministic(std::vector<int>& nts, int n, long seed) {
   LOG(INFO) << "using seed " << seed;
   for (int nt : nts) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,12 @@
 
 #include <folly/Function.h>
 #include <folly/Range.h>
+#include <folly/hash/Hash.h>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace folly {
@@ -132,10 +134,30 @@ class FunctionScheduler {
                                       std::chrono::milliseconds startDelay);
 
   /**
+   * Add a new function to the FunctionScheduler whose start times are attempted
+   * to be scheduled so that they are congruent modulo the interval.
+   * Note: The scheduling of the next run time happens right before the function
+   * invocation, so the first time a function takes more time than the interval,
+   * it will be reinvoked immediately.
+   */
+  void addFunctionConsistentDelay(
+      Function<void()>&& cb,
+      std::chrono::milliseconds interval,
+      StringPiece nameID = StringPiece(),
+      std::chrono::milliseconds startDelay = std::chrono::milliseconds(0));
+
+  /**
    * A type alias for function that is called to determine the time
    * interval for the next scheduled run.
    */
   using IntervalDistributionFunc = Function<std::chrono::milliseconds()>;
+  /**
+   * A type alias for function that returns the next run time, given the current
+   * run time and the current start time.
+   */
+  using NextRunTimeFunc = Function<std::chrono::steady_clock::time_point(
+      std::chrono::steady_clock::time_point,
+      std::chrono::steady_clock::time_point)>;
 
   /**
    * Add a new function to the FunctionScheduler. The scheduling interval
@@ -149,6 +171,18 @@ class FunctionScheduler {
   void addFunctionGenericDistribution(
       Function<void()>&& cb,
       IntervalDistributionFunc&& intervalFunc,
+      const std::string& nameID,
+      const std::string& intervalDescr,
+      std::chrono::milliseconds startDelay);
+
+  /**
+   * Like addFunctionGenericDistribution, adds a new function to the
+   * FunctionScheduler, but the next run time is determined directly by the
+   * given functor, rather than by adding an interval.
+   */
+  void addFunctionGenericNextRunTimeFunctor(
+      Function<void()>&& cb,
+      NextRunTimeFunc&& fn,
       const std::string& nameID,
       const std::string& intervalDescr,
       std::chrono::milliseconds startDelay);
@@ -201,7 +235,7 @@ class FunctionScheduler {
  private:
   struct RepeatFunc {
     Function<void()> cb;
-    IntervalDistributionFunc intervalFunc;
+    NextRunTimeFunc nextRunTimeFunc;
     std::chrono::steady_clock::time_point nextRunTime;
     std::string name;
     std::chrono::milliseconds startDelay;
@@ -215,21 +249,47 @@ class FunctionScheduler {
         const std::string& intervalDistDescription,
         std::chrono::milliseconds delay,
         bool once)
+        : RepeatFunc(
+              std::move(cback),
+              getNextRunTimeFunc(std::move(intervalFn)),
+              nameID,
+              intervalDistDescription,
+              delay,
+              once) {}
+
+    RepeatFunc(
+        Function<void()>&& cback,
+        NextRunTimeFunc&& nextRunTimeFn,
+        const std::string& nameID,
+        const std::string& intervalDistDescription,
+        std::chrono::milliseconds delay,
+        bool once)
         : cb(std::move(cback)),
-          intervalFunc(std::move(intervalFn)),
+          nextRunTimeFunc(std::move(nextRunTimeFn)),
           nextRunTime(),
           name(nameID),
           startDelay(delay),
           intervalDescr(intervalDistDescription),
           runOnce(once) {}
 
+    static NextRunTimeFunc getNextRunTimeFunc(
+        IntervalDistributionFunc&& intervalFn) {
+      return [intervalFn = std::move(intervalFn)](
+                 std::chrono::steady_clock::time_point /* curNextRunTime */,
+                 std::chrono::steady_clock::time_point curTime) mutable {
+        return curTime + intervalFn();
+      };
+    }
+
     std::chrono::steady_clock::time_point getNextRunTime() const {
       return nextRunTime;
     }
     void setNextRunTimeStrict(std::chrono::steady_clock::time_point curTime) {
-      nextRunTime = curTime + intervalFunc();
+      nextRunTime = nextRunTimeFunc(nextRunTime, curTime);
     }
-    void setNextRunTimeSteady() { nextRunTime += intervalFunc(); }
+    void setNextRunTimeSteady() {
+      nextRunTime = nextRunTimeFunc(nextRunTime, nextRunTime);
+    }
     void resetNextRunTime(std::chrono::steady_clock::time_point curTime) {
       nextRunTime = curTime + startDelay;
     }
@@ -241,28 +301,51 @@ class FunctionScheduler {
   };
 
   struct RunTimeOrder {
-    bool operator()(const RepeatFunc& f1, const RepeatFunc& f2) const {
-      return f1.getNextRunTime() > f2.getNextRunTime();
+    bool operator()(const std::unique_ptr<RepeatFunc>& f1, const std::unique_ptr<RepeatFunc>& f2) const {
+      return f1->getNextRunTime() > f2->getNextRunTime();
     }
   };
 
-  typedef std::vector<RepeatFunc> FunctionHeap;
+  typedef std::vector<std::unique_ptr<RepeatFunc>> FunctionHeap;
+  typedef std::unordered_map<StringPiece, RepeatFunc*, Hash> FunctionMap;
 
   void run();
   void runOneFunction(std::unique_lock<std::mutex>& lock,
                       std::chrono::steady_clock::time_point now);
   void cancelFunction(const std::unique_lock<std::mutex>& lock,
-                      FunctionHeap::iterator it);
+                      RepeatFunc* it);
   void addFunctionToHeap(const std::unique_lock<std::mutex>& lock,
-                         RepeatFunc&& func);
+                         std::unique_ptr<RepeatFunc> func);
 
-  void addFunctionInternal(
+  template <typename RepeatFuncNextRunTimeFunc>
+  void addFunctionToHeapChecked(
       Function<void()>&& cb,
-      IntervalDistributionFunc&& intervalFunc,
+      RepeatFuncNextRunTimeFunc&& fn,
       const std::string& nameID,
       const std::string& intervalDescr,
       std::chrono::milliseconds startDelay,
       bool runOnce);
+
+  void addFunctionInternal(
+      Function<void()>&& cb,
+      NextRunTimeFunc&& fn,
+      const std::string& nameID,
+      const std::string& intervalDescr,
+      std::chrono::milliseconds startDelay,
+      bool runOnce);
+  void addFunctionInternal(
+      Function<void()>&& cb,
+      IntervalDistributionFunc&& fn,
+      const std::string& nameID,
+      const std::string& intervalDescr,
+      std::chrono::milliseconds startDelay,
+      bool runOnce);
+
+  // Return true if the current function is being canceled
+  bool cancelAllFunctionsWithLock(std::unique_lock<std::mutex>& lock);
+  bool cancelFunctionWithLock(
+      std::unique_lock<std::mutex>& lock,
+      StringPiece nameID);
 
   std::thread thread_;
 
@@ -273,6 +356,7 @@ class FunctionScheduler {
   // The functions to run.
   // This is a heap, ordered by next run time.
   FunctionHeap functions_;
+  FunctionMap functionsMap_;
   RunTimeOrder fnCmp_;
 
   // The function currently being invoked by the running thread.
@@ -285,6 +369,7 @@ class FunctionScheduler {
 
   std::string threadName_;
   bool steady_{false};
+  bool cancellingCurrentFunction_{false};
 };
 
-}
+} // namespace folly

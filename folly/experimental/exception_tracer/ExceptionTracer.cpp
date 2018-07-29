@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,11 +36,11 @@ using namespace __cxxabiv1;
 
 extern "C" {
 StackTraceStack* getExceptionStackTraceStack(void) __attribute__((__weak__));
-typedef StackTraceStack* (*GetExceptionStackTraceStackType)(void);
+typedef StackTraceStack* (*GetExceptionStackTraceStackType)();
 GetExceptionStackTraceStackType getExceptionStackTraceStackFn;
 }
 
-}  // namespace
+} // namespace
 
 namespace folly {
 namespace exception_tracer {
@@ -61,8 +61,7 @@ void printExceptionInfo(
     out << "(unknown type)";
   }
   out << " (" << info.frames.size()
-      << (info.frames.size() == 1 ? " frame" : " frames")
-      << ")\n";
+      << (info.frames.size() == 1 ? " frame" : " frames") << ")\n";
   try {
     size_t frameCount = info.frames.size();
 
@@ -104,13 +103,11 @@ namespace {
 bool isAbiCppException(const __cxa_exception* exc) {
   // The least significant four bytes must be "C++\0"
   static const uint64_t cppClass =
-    ((uint64_t)'C' << 24) |
-    ((uint64_t)'+' << 16) |
-    ((uint64_t)'+' << 8);
+      ((uint64_t)'C' << 24) | ((uint64_t)'+' << 16) | ((uint64_t)'+' << 8);
   return (exc->unwindHeader.exception_class & 0xffffffff) == cppClass;
 }
 
-}  // namespace
+} // namespace
 
 std::vector<ExceptionInfo> getCurrentExceptions() {
   struct Once {
@@ -120,9 +117,8 @@ std::vector<ExceptionInfo> getCurrentExceptions() {
 
       if (!getExceptionStackTraceStackFn) {
         // Nope, see if it's in a shared library
-        getExceptionStackTraceStackFn =
-          (GetExceptionStackTraceStackType)dlsym(
-              RTLD_NEXT, "getExceptionStackTraceStack");
+        getExceptionStackTraceStackFn = (GetExceptionStackTraceStackType)dlsym(
+            RTLD_NEXT, "getExceptionStackTraceStack");
       }
     }
   };
@@ -139,14 +135,14 @@ std::vector<ExceptionInfo> getCurrentExceptions() {
     static bool logged = false;
     if (!logged) {
       LOG(WARNING)
-        << "Exception tracer library not linked, stack traces not available";
+          << "Exception tracer library not linked, stack traces not available";
       logged = true;
     }
   } else if ((traceStack = getExceptionStackTraceStackFn()) == nullptr) {
     static bool logged = false;
     if (!logged) {
       LOG(WARNING)
-        << "Exception stack trace invalid, stack traces not available";
+          << "Exception stack trace invalid, stack traces not available";
       logged = true;
     }
   }
@@ -158,20 +154,28 @@ std::vector<ExceptionInfo> getCurrentExceptions() {
     // standard ABI __cxa_exception objects, and are correctly labeled as
     // such in the exception_class field.  We could try to extract the
     // primary exception type in horribly hacky ways, but, for now, nullptr.
-    info.type =
-      isAbiCppException(currentException) ?
-      currentException->exceptionType :
-      nullptr;
+    info.type = isAbiCppException(currentException)
+        ? currentException->exceptionType
+        : nullptr;
+
     if (traceStack) {
-      CHECK(trace) << "Invalid trace stack!";
-      info.frames.assign(trace->addresses,
-                         trace->addresses + trace->frameCount);
+      LOG_IF(DFATAL, !trace)
+          << "Invalid trace stack for exception of type: "
+          << (info.type ? folly::demangle(*info.type) : "null");
+
+      if (!trace) {
+        return {};
+      }
+
+      info.frames.assign(
+          trace->addresses, trace->addresses + trace->frameCount);
       trace = traceStack->next(trace);
     }
     currentException = currentException->nextException;
     exceptions.push_back(std::move(info));
   }
-  CHECK(!trace) << "Invalid trace stack!";
+
+  LOG_IF(DFATAL, trace) << "Invalid trace stack!";
 
   return exceptions;
 }
@@ -203,7 +207,7 @@ void unexpectedHandler() {
   origUnexpected();
 }
 
-}  // namespace
+} // namespace
 
 void installHandlers() {
   struct Once {
@@ -215,5 +219,5 @@ void installHandlers() {
   static Once once;
 }
 
-}  // namespace exception_tracer
-}  // namespace folly
+} // namespace exception_tracer
+} // namespace folly

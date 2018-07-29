@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-present Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,23 +27,52 @@ class TestData : public RequestData {
  public:
   explicit TestData(int data) : data_(data) {}
   ~TestData() override {}
+
+  bool hasCallback() override {
+    return true;
+  }
+
   void onSet() override {
     set_++;
   }
+
   void onUnset() override {
     unset_++;
   }
+
   int set_ = 0, unset_ = 0;
   int data_;
 };
 
+RequestContext& getContext() {
+  auto* ctx = RequestContext::get();
+  EXPECT_TRUE(ctx != nullptr);
+  return *ctx;
+}
+
+void setData(int data = 0, std::string key = "test") {
+  getContext().setContextData(key, std::make_unique<TestData>(data));
+}
+
+bool hasData(std::string key = "test") {
+  return getContext().hasContextData(key);
+}
+
+const TestData& getData(std::string key = "test") {
+  auto* ptr = dynamic_cast<TestData*>(getContext().getContextData(key));
+  EXPECT_TRUE(ptr != nullptr);
+  return *ptr;
+}
+
+void clearData(std::string key = "test") {
+  getContext().clearContextData(key);
+}
+
 TEST(RequestContext, SimpleTest) {
   EventBase base;
 
-
   // There should always be a default context with get()
   EXPECT_TRUE(RequestContext::get() != nullptr);
-
 
   // but not with saveContext()
   EXPECT_EQ(RequestContext::saveContext(), nullptr);
@@ -55,20 +84,19 @@ TEST(RequestContext, SimpleTest) {
   EXPECT_EQ(nullptr, RequestContext::get()->getContextData("test"));
 
   RequestContext::get()->setContextData("test", std::make_unique<TestData>(10));
-  base.runInEventBaseThread([&](){
-      EXPECT_TRUE(RequestContext::get() != nullptr);
-      auto data = dynamic_cast<TestData*>(
-        RequestContext::get()->getContextData("test"))->data_;
-      EXPECT_EQ(10, data);
-      base.terminateLoopSoon();
-    });
-  auto th = std::thread([&](){
-      base.loopForever();
+  base.runInEventBaseThread([&]() {
+    EXPECT_TRUE(RequestContext::get() != nullptr);
+    auto data =
+        dynamic_cast<TestData*>(RequestContext::get()->getContextData("test"))
+            ->data_;
+    EXPECT_EQ(10, data);
+    base.terminateLoopSoon();
   });
+  auto th = std::thread([&]() { base.loopForever(); });
   th.join();
   EXPECT_TRUE(RequestContext::get() != nullptr);
-  auto a = dynamic_cast<TestData*>(
-    RequestContext::get()->getContextData("test"));
+  auto a =
+      dynamic_cast<TestData*>(RequestContext::get()->getContextData("test"));
   auto data = a->data_;
   EXPECT_EQ(10, data);
 
@@ -77,21 +105,53 @@ TEST(RequestContext, SimpleTest) {
   EXPECT_TRUE(nullptr != RequestContext::get());
 }
 
+TEST(RequestContext, RequestContextScopeGuard) {
+  RequestContextScopeGuard g0;
+  setData(10);
+  {
+    RequestContextScopeGuard g1;
+    EXPECT_FALSE(hasData());
+    setData(20);
+    EXPECT_EQ(20, getData().data_);
+    EXPECT_EQ(1, getData().set_);
+    EXPECT_EQ(0, getData().unset_);
+  }
+  EXPECT_EQ(10, getData().data_);
+  EXPECT_EQ(2, getData().set_);
+  EXPECT_EQ(1, getData().unset_);
+}
+
+TEST(RequestContext, defaultContext) {
+  // Don't create a top level guard
+  // Regression test for set/onset used to not work with the default context
+  setData(10);
+  {
+    RequestContextScopeGuard g1;
+    EXPECT_FALSE(hasData());
+  }
+  EXPECT_EQ(10, getData().data_);
+  // TODO: should be 2/1
+  EXPECT_EQ(1, getData().set_);
+  EXPECT_EQ(0, getData().unset_);
+}
+
 TEST(RequestContext, setIfAbsentTest) {
   EXPECT_TRUE(RequestContext::get() != nullptr);
 
   RequestContext::get()->setContextData("test", std::make_unique<TestData>(10));
   EXPECT_FALSE(RequestContext::get()->setContextDataIfAbsent(
       "test", std::make_unique<TestData>(20)));
-  EXPECT_EQ(10,
-            dynamic_cast<TestData*>(
-                RequestContext::get()->getContextData("test"))->data_);
+  EXPECT_EQ(
+      10,
+      dynamic_cast<TestData*>(RequestContext::get()->getContextData("test"))
+          ->data_);
 
   EXPECT_TRUE(RequestContext::get()->setContextDataIfAbsent(
       "test2", std::make_unique<TestData>(20)));
-  EXPECT_EQ(20,
-            dynamic_cast<TestData*>(
-                RequestContext::get()->getContextData("test2"))->data_);
+  EXPECT_EQ(
+      20,
+      dynamic_cast<TestData*>(RequestContext::get()->getContextData("test2"))
+          ->data_);
 
   RequestContext::setContext(std::shared_ptr<RequestContext>());
   EXPECT_TRUE(nullptr != RequestContext::get());
@@ -103,26 +163,30 @@ TEST(RequestContext, testSetUnset) {
   ctx1->setContextData("test", std::make_unique<TestData>(10));
   auto testData1 = dynamic_cast<TestData*>(ctx1->getContextData("test"));
 
+  // onSet called in setContextData
+  EXPECT_EQ(1, testData1->set_);
+
   // Override RequestContext
   RequestContext::create();
   auto ctx2 = RequestContext::saveContext();
   ctx2->setContextData("test", std::make_unique<TestData>(20));
   auto testData2 = dynamic_cast<TestData*>(ctx2->getContextData("test"));
 
+  // onSet called in setContextData
+  EXPECT_EQ(1, testData2->set_);
+
   // Check ctx1->onUnset was called
-  EXPECT_EQ(0, testData1->set_);
   EXPECT_EQ(1, testData1->unset_);
 
   RequestContext::setContext(ctx1);
-  EXPECT_EQ(1, testData1->set_);
+  EXPECT_EQ(2, testData1->set_);
   EXPECT_EQ(1, testData1->unset_);
-  EXPECT_EQ(0, testData2->set_);
   EXPECT_EQ(1, testData2->unset_);
 
   RequestContext::setContext(ctx2);
-  EXPECT_EQ(1, testData1->set_);
+  EXPECT_EQ(2, testData1->set_);
   EXPECT_EQ(2, testData1->unset_);
-  EXPECT_EQ(1, testData2->set_);
+  EXPECT_EQ(2, testData2->set_);
   EXPECT_EQ(1, testData2->unset_);
 }
 
@@ -136,9 +200,9 @@ TEST(RequestContext, deadlockTest) {
           val_, std::make_unique<TestData>(1));
     }
 
-    void onSet() override {}
-
-    void onUnset() override {}
+    bool hasCallback() override {
+      return false;
+    }
 
     std::string val_;
   };
@@ -146,4 +210,69 @@ TEST(RequestContext, deadlockTest) {
   RequestContext::get()->setContextData(
       "test", std::make_unique<DeadlockTestData>("test2"));
   RequestContext::get()->clearContextData("test");
+}
+
+TEST(RequestContext, ShallowCopyBasic) {
+  ShallowCopyRequestContextScopeGuard g0;
+  setData(123, "immutable");
+  EXPECT_EQ(123, getData("immutable").data_);
+  EXPECT_FALSE(hasData());
+
+  {
+    ShallowCopyRequestContextScopeGuard g1;
+    EXPECT_EQ(123, getData("immutable").data_);
+    setData(789);
+    EXPECT_EQ(789, getData().data_);
+  }
+
+  EXPECT_FALSE(hasData());
+  EXPECT_EQ(123, getData("immutable").data_);
+  EXPECT_EQ(1, getData("immutable").set_);
+  EXPECT_EQ(0, getData("immutable").unset_);
+}
+
+TEST(RequestContext, ShallowCopyOverwrite) {
+  RequestContextScopeGuard g0;
+  setData(123);
+  EXPECT_EQ(123, getData().data_);
+  {
+    ShallowCopyRequestContextScopeGuard g1(
+        "test", std::make_unique<TestData>(789));
+    EXPECT_EQ(789, getData().data_);
+    EXPECT_EQ(1, getData().set_);
+    EXPECT_EQ(0, getData().unset_);
+  }
+  EXPECT_EQ(123, getData().data_);
+  EXPECT_EQ(2, getData().set_);
+  EXPECT_EQ(1, getData().unset_);
+}
+
+TEST(RequestContext, ShallowCopyDefaultContext) {
+  // Don't set global scope guard
+  setData(123);
+  EXPECT_EQ(123, getData().data_);
+  {
+    ShallowCopyRequestContextScopeGuard g1(
+        "test", std::make_unique<TestData>(789));
+    EXPECT_EQ(789, getData().data_);
+  }
+  EXPECT_EQ(123, getData().data_);
+  EXPECT_EQ(2, getData().set_);
+  EXPECT_EQ(1, getData().unset_);
+}
+
+TEST(RequestContext, ShallowCopyClear) {
+  RequestContextScopeGuard g0;
+  setData(123);
+  EXPECT_EQ(123, getData().data_);
+  {
+    ShallowCopyRequestContextScopeGuard g1;
+    EXPECT_EQ(123, getData().data_);
+    clearData();
+    setData(789);
+    EXPECT_EQ(789, getData().data_);
+  }
+  EXPECT_EQ(123, getData().data_);
+  EXPECT_EQ(2, getData().set_);
+  EXPECT_EQ(1, getData().unset_);
 }

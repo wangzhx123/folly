@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,8 +37,8 @@ class Composed;
 template <class Value, class First, class Second>
 class Chain;
 
-} // detail
-} // gen
-} // folly
+} // namespace detail
+} // namespace gen
+} // namespace folly
 
 #include <folly/gen/Core-inl.h>

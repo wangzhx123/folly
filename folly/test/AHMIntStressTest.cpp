@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-#include <thread>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #include <folly/AtomicHashMap.h>
-#include <folly/ScopeGuard.h>
 #include <folly/Memory.h>
+#include <folly/ScopeGuard.h>
 #include <folly/portability/GTest.h>
 
 namespace {
 
 struct MyObject {
-  explicit MyObject(int i) : i(i) {}
+  explicit MyObject(int i_) : i(i_) {}
   int i;
 };
 
@@ -93,7 +93,7 @@ struct MyObjectDirectory {
   std::shared_ptr<MyMap> prev_;
 };
 
-}
+} // namespace
 
 //////////////////////////////////////////////////////////////////////
 
@@ -119,5 +119,7 @@ TEST(AHMIntStressTest, Test) {
     });
   }
 
-  for (auto& t : threads) t.join();
+  for (auto& t : threads) {
+    t.join();
+}
 }

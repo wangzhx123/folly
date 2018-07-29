@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,15 @@
 
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <stdexcept>
 
 #include <folly/AtomicHashArray.h>
 #include <folly/Conv.h>
-#include <folly/Hash.h>
 #include <folly/Memory.h>
-#include <folly/portability/SysMman.h>
+#include <folly/hash/Hash.h>
 #include <folly/portability/GTest.h>
+#include <folly/portability/SysMman.h>
 
 using namespace std;
 using namespace folly;
@@ -74,7 +75,9 @@ class MmapAllocator {
   T *allocate(size_t n) {
     void *p = mmap(nullptr, n * sizeof(T), PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p == MAP_FAILED) throw std::bad_alloc();
+    if (p == MAP_FAILED) {
+      throw std::bad_alloc();
+    }
     return (T *)p;
   }
 
@@ -83,16 +86,17 @@ class MmapAllocator {
   }
 };
 
-template<class KeyT, class ValueT>
+template <class KeyT, class ValueT>
 pair<KeyT,ValueT> createEntry(int i) {
   return pair<KeyT,ValueT>(to<KeyT>(folly::hash::jenkins_rev_mix32(i) % 1000),
                            to<ValueT>(i + 3));
 }
 
-template <class KeyT,
-          class ValueT,
-          class Allocator = std::allocator<char>,
-          class ProbeFcn = AtomicHashArrayLinearProbeFcn>
+template <
+    class KeyT,
+    class ValueT,
+    class Allocator = std::allocator<char>,
+    class ProbeFcn = AtomicHashArrayLinearProbeFcn>
 void testMap() {
   typedef AtomicHashArray<KeyT, ValueT, std::hash<KeyT>,
                           std::equal_to<KeyT>, Allocator, ProbeFcn> MyArr;
@@ -140,7 +144,9 @@ void testMap() {
   }
 }
 
-template<class KeyT, class ValueT,
+template <
+    class KeyT,
+    class ValueT,
     class Allocator = std::allocator<char>,
     class ProbeFcn = AtomicHashArrayLinearProbeFcn>
 void testNoncopyableMap() {
@@ -149,7 +155,7 @@ void testNoncopyableMap() {
 
   auto arr = MyArr::create(250);
   for (int i = 0; i < 100; i++) {
-    arr->insert(make_pair(i,std::unique_ptr<ValueT>(new ValueT(i))));
+    arr->insert(make_pair(i, std::make_unique<ValueT>(i)));
   }
   for (int i = 100; i < 150; i++) {
     arr->emplace(i,new ValueT(i));
@@ -261,7 +267,9 @@ struct EqTraits {
 struct HashTraits {
   size_t operator()(char* a) {
     size_t result = 0;
-    while (a[0] != 0) result += static_cast<size_t>(*(a++));
+    while (a[0] != 0) {
+      result += static_cast<size_t>(*(a++));
+    }
     return result;
   }
   size_t operator()(const char& a) {
@@ -269,7 +277,9 @@ struct HashTraits {
   }
   size_t operator()(const StringPiece a) {
     size_t result = 0;
-    for (const auto& ch : a) result += static_cast<size_t>(ch);
+    for (const auto& ch : a) {
+      result += static_cast<size_t>(ch);
+    }
     return result;
   }
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 #include <random>
 #include <thread>
 #include <vector>
+
 #include <glog/logging.h>
 
 #include <folly/Random.h>
@@ -73,7 +74,7 @@ void randomPartition(Random& random, T key, int n,
   }
 }
 
-}  // namespace
+} // namespace
 
 TEST(EventCount, Simple) {
   // We're basically testing for no deadlock.

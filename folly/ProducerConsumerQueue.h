@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2012-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <folly/detail/CacheLocality.h>
+#include <folly/concurrency/CacheLocality.h>
 
 namespace folly {
 
@@ -35,7 +35,7 @@ namespace folly {
  * ProducerConsumerQueue is a one producer and one consumer queue
  * without locks.
  */
-template<class T>
+template <class T>
 struct ProducerConsumerQueue {
   typedef T value_type;
 
@@ -64,12 +64,12 @@ struct ProducerConsumerQueue {
     // (No real synchronization needed at destructor time: only one
     // thread can be doing this.)
     if (!std::is_trivially_destructible<T>::value) {
-      size_t read = readIndex_;
-      size_t end = writeIndex_;
-      while (read != end) {
-        records_[read].~T();
-        if (++read == size_) {
-          read = 0;
+      size_t readIndex = readIndex_;
+      size_t endIndex = writeIndex_;
+      while (readIndex != endIndex) {
+        records_[readIndex].~T();
+        if (++readIndex == size_) {
+          readIndex = 0;
         }
       }
     }
@@ -77,7 +77,7 @@ struct ProducerConsumerQueue {
     std::free(records_);
   }
 
-  template<class ...Args>
+  template <class... Args>
   bool write(Args&&... recordArgs) {
     auto const currentWrite = writeIndex_.load(std::memory_order_relaxed);
     auto nextRecord = currentWrite + 1;
@@ -167,15 +167,22 @@ struct ProducerConsumerQueue {
     return ret;
   }
 
-private:
-  char pad0_[detail::CacheLocality::kFalseSharingRange];
+  // maximum number of items in the queue.
+  size_t capacity() const {
+    return size_ - 1;
+  }
+
+ private:
+  using AtomicIndex = std::atomic<unsigned int>;
+
+  char pad0_[hardware_destructive_interference_size];
   const uint32_t size_;
   T* const records_;
 
-  FOLLY_ALIGN_TO_AVOID_FALSE_SHARING std::atomic<unsigned int> readIndex_;
-  FOLLY_ALIGN_TO_AVOID_FALSE_SHARING std::atomic<unsigned int> writeIndex_;
+  alignas(hardware_destructive_interference_size) AtomicIndex readIndex_;
+  alignas(hardware_destructive_interference_size) AtomicIndex writeIndex_;
 
-  char pad1_[detail::CacheLocality::kFalseSharingRange - sizeof(writeIndex_)];
+  char pad1_[hardware_destructive_interference_size - sizeof(AtomicIndex)];
 };
 
-}
+} // namespace folly

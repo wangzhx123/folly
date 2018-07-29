@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Facebook, Inc.
+ * Copyright 2011-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,59 +17,34 @@
 //
 // Author: andrei.alexandrescu@fb.com
 
-#include <folly/Foreach.h>
-#include <folly/Traits.h>
-#include <folly/Random.h>
-#include <folly/FBString.h>
 #include <folly/FBVector.h>
-#include <folly/portability/GTest.h>
 
 #include <list>
 #include <map>
 #include <memory>
+
 #include <boost/random.hpp>
+
+#include <folly/FBString.h>
+#include <folly/Random.h>
+#include <folly/Traits.h>
+#include <folly/container/Foreach.h>
+#include <folly/portability/GTest.h>
+#include <folly/test/FBVectorTestUtil.h>
 
 using namespace std;
 using namespace folly;
+using namespace folly::test::detail;
 
-namespace {
+using IntFBVector = fbvector<int>;
+using FBStringFBVector = fbvector<fbstring>;
 
-auto static const seed = randomNumberSeed();
-typedef boost::mt19937 RandomT;
-static RandomT rng(seed);
-
-template <class Integral1, class Integral2>
-Integral2 random(Integral1 low, Integral2 up) {
-  boost::uniform_int<> range(low, up);
-  return range(rng);
-}
-
-template <class String>
-void randomString(String* toFill, unsigned int maxSize = 1000) {
-  assert(toFill);
-  toFill->resize(random(0, maxSize));
-  FOR_EACH (i, *toFill) {
-    *i = random('a', 'z');
-  }
-}
-
-template <class String, class Integral>
-void Num2String(String& str, Integral /* n */) {
-  str.resize(10, '\0');
-  sprintf(&str[0], "%ul", 10);
-  str.resize(strlen(str.c_str()));
-}
-
-template<class T> T randomObject();
-
-template<> int randomObject<int>() {
-  return random(0, 1024);
-}
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Tests begin here
-////////////////////////////////////////////////////////////////////////////////
+#define VECTOR IntFBVector
+#include <folly/test/FBVectorTests.cpp.h> // nolint
+#undef VECTOR
+#define VECTOR FBStringFBVector
+#include <folly/test/FBVectorTests.cpp.h> // nolint
+#undef VECTOR
 
 TEST(fbvector, clause_23_3_6_1_3_ambiguity) {
   fbvector<int> v(10, 20);
@@ -121,9 +96,9 @@ TEST(fbvector, works_with_std_string) {
 
 namespace {
 class UserDefinedType { int whatevs_; };
-}
+} // namespace
 
-FOLLY_ASSUME_FBVECTOR_COMPATIBLE(UserDefinedType);
+FOLLY_ASSUME_FBVECTOR_COMPATIBLE(UserDefinedType)
 
 TEST(fbvector, works_with_user_defined_type) {
   fbvector<UserDefinedType> v(10);
@@ -189,7 +164,7 @@ TEST(fbvector, unique_ptr) {
 
   v[0] = std::move(p);
   EXPECT_FALSE(v[0].get());
-  v[0].reset(new int(32));
+  v[0] = std::make_unique<int>(32);
   std::unique_ptr<int> somePtr;
   v.insert(v.begin(), std::move(somePtr));
   EXPECT_EQ(*v[1], 32);

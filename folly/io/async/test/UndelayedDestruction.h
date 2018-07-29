@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-present Facebook, Inc.
+ * Copyright 2014-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstdlib>
 #include <type_traits>
 #include <utility>
-#include <cassert>
 
 namespace folly {
 
@@ -40,7 +40,7 @@ namespace folly {
  * destroy a UndelayedDestruction object while it has a non-zero destructor
  * guard count will abort the program.
  */
-template<typename TDD>
+template <typename TDD>
 class UndelayedDestruction : public TDD {
  public:
   // We could just use constructor inheritance, but not all compilers
@@ -53,10 +53,9 @@ class UndelayedDestruction : public TDD {
   // gcc code it looks like it has been fixed to return false.  (The language
   // in the standard seems to indicate that returning false is the correct
   // behavior for non-destructible types, which is unfortunate.)
-  template<typename ...Args>
-  explicit UndelayedDestruction(Args&& ...args)
-    : TDD(std::forward<Args>(args)...) {
-  }
+  template <typename... Args>
+  explicit UndelayedDestruction(Args&&... args)
+      : TDD(std::forward<Args>(args)...) {}
 
   /**
    * Public destructor.
@@ -101,8 +100,8 @@ class UndelayedDestruction : public TDD {
 
  private:
   // Forbidden copy constructor and assignment operator
-  UndelayedDestruction(UndelayedDestruction const &) = delete;
-  UndelayedDestruction& operator=(UndelayedDestruction const &) = delete;
+  UndelayedDestruction(UndelayedDestruction const&) = delete;
+  UndelayedDestruction& operator=(UndelayedDestruction const&) = delete;
 };
 
-}
+} // namespace folly
